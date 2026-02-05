@@ -37,7 +37,8 @@ studentRouter.post("/interaction/stream", async (req, res) => {
     }
 
     // Determine if streaming is enabled (default: true)
-    const enableStreaming = req.body.stream !== false && req.body.stream !== "false";
+    const enableStreaming =
+      req.body.stream !== false && req.body.stream !== "false";
 
     // Call OpenAI - promptTutor handles sending the response in both streaming and non-streaming modes
     const result = await promptTutor(
@@ -49,9 +50,10 @@ studentRouter.post("/interaction/stream", async (req, res) => {
       enableStreaming,
     );
 
+    const username = req.body.userId != "" ? req.body.userId : undefined;
     // Log the interaction to CosmosDB
     logResponse({
-      username: req.body.username, // Optional, can be undefined
+      username, // Optional, can be undefined
       userMessage: req.body.newMessage,
       response: result.response[0].content,
       messages: [...chatHistory, ...result.response],

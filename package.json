@@ -8,6 +8,8 @@
   "license": "MIT",
   "type": "module",
   "dependencies": {
+    "@azure/cosmos": "^4.9.1",
+    "@azure/identity": "^4.13.0",
     "@azure/openai": "^2.0.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.0",

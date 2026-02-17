@@ -42,7 +42,7 @@ export const JUPYTUTOR_INTERACTION_SCHEMA = {
 
   timestamp: { type: "number", required: true },
 
-  // irreversible crypto-secure hash for student-level evaluation
+  // Hash for student-level evaluation
   student_id: { type: "string", required: true },
 };
 
@@ -168,7 +168,7 @@ export const jupytutorInteractionStore = new JupytutorInteractionStore();
 
 const HMAC = process.env.HMAC_KEY;
 /**
- * Generates a secure, searchable pseudo-anonymous ID.
+ * Generates a searchable pseudo-anonymous ID.
  * @param {string} rawIdentifier - e.g., "kevin.gillespie"
  * @param {string} secretKey - A high-entropy key stored in your environment/KMS.
  * @returns {string} - A hex-encoded pseudonym.
@@ -186,10 +186,15 @@ function generatePseudoID(rawIdentifier, secretKey) {
 /**
  * To be called upon completion of the streamed results.
  */
-export const logResponse = ({ username, userMessage, response, messages }) => {
+export const logResponse = ({
+  username,
+  userMessage,
+  response,
+  messages,
+  courseID: course_id,
+  assignmentID: assignment_id,
+}) => {
   const timestamp = Date.now();
-  const course_id = "data8"; // TODO UPDATE!
-  const assignment_id = ""; // TODO UPDATE!
   const _middleID = assignment_id != "" ? "--" + assignment_id : "";
   const id = `${course_id}${_middleID}--${timestamp}`;
 

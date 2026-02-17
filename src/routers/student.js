@@ -57,6 +57,8 @@ studentRouter.post("/interaction/stream", async (req, res) => {
       userMessage: req.body.newMessage,
       response: result.response[0].content,
       messages: [...chatHistory, ...result.response],
+      courseID: req.body.chatHistory ?? "default",
+      assignmentID: req.body.chatHistory ?? "",
     });
   } catch (error) {
     console.error("Error in /interaction/stream endpoint:", error);

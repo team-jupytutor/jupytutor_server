@@ -5,6 +5,7 @@ import OpenAI, { AzureOpenAI } from "openai";
 // const enc = get_encoding("cl100k_base");
 import fs from "fs";
 import path from "path";
+import { MODEL_CHOICE } from "./constants.js";
 
 //   const openAiMessages = [
 //     {role: 'system', content: prompt},
@@ -24,14 +25,14 @@ import path from "path";
 //   defaultQuery: { "api-version": apiVersion },
 //   defaultHeaders: { "api-key": apiKey },
 // });
-
+export { MODEL_CHOICE };
 const GPT_5_MINI_URL =
   "https://jupytutor.openai.azure.com/openai/responses?api-version=2025-04-01-preview";
 const client = new AzureOpenAI({
   apiKey: process.env.AZURE_OPEN_AI_KEY,
   baseURL: GPT_5_MINI_URL,
   apiVersion: "2025-04-01-preview",
-  deployment: "gpt-5-mini",
+  deployment: MODEL_CHOICE,
   region: "westus",
 });
 
@@ -125,7 +126,7 @@ const processFile = (file) => {
     return {
       type: "input_image",
       image_url: `data:${detectedMimeType};base64,${file.buffer.toString(
-        "base64"
+        "base64",
       )}`,
       noShow: true,
     };
@@ -189,16 +190,36 @@ const processFile = (file) => {
 
 const graderInstructions = fs.readFileSync(
   "src/prompts/grader_prompt.txt",
-  "utf8"
+  "utf8",
 );
 const freeResponseInstructions = fs.readFileSync(
   "src/prompts/free_prompt.txt",
-  "utf8"
+  "utf8",
 );
 const successInstructions = fs.readFileSync(
   "src/prompts/success_prompt.txt",
-  "utf8"
+  "utf8",
 );
+
+/**
+ * Helper function to process chat history by removing images and marking reasoning as noShow.
+ * This prevents the chat history from becoming too large for subsequent requests.
+ */
+const processChatHistory = (messages) => {
+  return messages.map((message) => {
+    if (message.type === "reasoning") {
+      return { ...message, noShow: true };
+    }
+    return {
+      ...message,
+      content:
+        typeof message.content === "string"
+          ? message.content
+          : message.content.filter((sub) => sub.type !== "input_image")[0]
+              ?.text || message.content,
+    };
+  });
+};
 
 /**
  * This function is a wrapper around the OpenAI API that can take chat history, a new message, and optional files and return a response from the LLM.
@@ -224,7 +245,7 @@ export const promptTutor = async (
   files = [],
   cellType,
   res = null,
-  stream = false
+  stream = false,
 ) => {
   try {
     // Prepare messages array
@@ -269,8 +290,8 @@ export const promptTutor = async (
           ? lastMessage.content.find((sub) => sub.type === "input_text")
               ?.text || ""
           : typeof lastMessage.content === "string"
-          ? lastMessage.content
-          : ""
+            ? lastMessage.content
+            : ""
         : null;
     const newMessageText = typeof newMessage === "string" ? newMessage : "";
 
@@ -309,8 +330,8 @@ export const promptTutor = async (
       cellType === "grader"
         ? graderInstructions
         : cellType === "free_response"
-        ? freeResponseInstructions
-        : successInstructions;
+          ? freeResponseInstructions
+          : successInstructions;
 
     // Set up streaming response headers if streaming is enabled
     if (stream && res) {
@@ -359,7 +380,7 @@ export const promptTutor = async (
               type: "message_delta",
               content: delta,
               role: "assistant",
-            })}\n\n`
+            })}\n\n`,
           );
         } else if (event.type === "response.output_text.done") {
           // Message is complete
@@ -398,23 +419,10 @@ export const promptTutor = async (
       // Add the complete output to messages
       messages.push(...fullOutput);
 
-      // Process the final chat history (removing images for size)
-      const chatHistoryWithImagesRemoved = messages.map((message) => {
-        if (message.type == "reasoning") return { ...message, noShow: true };
-        return {
-          ...message,
-          content:
-            typeof message.content === "string"
-              ? message.content
-              : message.content.filter((sub) => sub.type !== "input_image")[0]
-                  .text,
-        };
-      });
-
-      // Send the final response data
+      // Build the final response object
       const finalResponse = {
         response: fullOutput,
-        newChatHistory: chatHistoryWithImagesRemoved,
+        newChatHistory: processChatHistory(messages),
         promptSuggestions: [],
       };
 
@@ -423,7 +431,7 @@ export const promptTutor = async (
         `data: ${JSON.stringify({
           type: "final_response",
           data: finalResponse,
-        })}\n\n`
+        })}\n\n`,
       );
 
       res.write("data: [DONE]\n\n");
@@ -432,27 +440,21 @@ export const promptTutor = async (
       return finalResponse;
     } else {
       // Handle non-streaming response
-      // add to messages the response.output in the correct format. Also remove the images from the messages.
       messages.push(...response.output);
 
-      // removing because it will make the next requests fail for being too large
-      const chatHistoryWithImagesRemoved = messages.map((message) => {
-        if (message.type == "reasoning") return { ...message, noShow: true };
-        return {
-          ...message,
-          content:
-            typeof message.content === "string"
-              ? message.content
-              : message.content.filter((sub) => sub.type !== "input_image")[0]
-                  .text,
-        };
-      });
-
-      return {
+      // Build the final response object
+      const finalResponse = {
         response: response.output,
-        newChatHistory: chatHistoryWithImagesRemoved,
+        newChatHistory: processChatHistory(messages),
         promptSuggestions: [],
       };
+
+      // Send JSON response if res object is provided
+      if (res) {
+        res.json(finalResponse);
+      }
+
+      return finalResponse;
     }
   } catch (error) {
     console.error("Error in promptTutor:", error);
@@ -463,7 +465,7 @@ export const promptTutor = async (
         `data: ${JSON.stringify({
           type: "error",
           error: error.message || "Internal server error",
-        })}\n\n`
+        })}\n\n`,
       );
 
       res.write("data: [DONE]\n\n");

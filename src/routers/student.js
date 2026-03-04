@@ -2,8 +2,9 @@
 import express from "express";
 const studentRouter = express.Router();
 
-import { promptTutor } from "../clients/openai.js";
+import { promptTutor, promptTutorV2 } from "../clients/openai.js";
 import { logResponse } from "../clients/cosmosdb.js";
+import { interactionV2RequestSchema } from "../types/prompt-context.js";
 
 // Main interaction endpoint - supports both streaming and non-streaming responses
 studentRouter.post("/interaction/stream", async (req, res) => {
@@ -64,6 +65,56 @@ studentRouter.post("/interaction/stream", async (req, res) => {
     console.error("Error in /interaction/stream endpoint:", error);
 
     // Send error to client if response hasn't been sent yet
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: error.message || "Internal server error",
+        details:
+          process.env.NODE_ENV === "development" ? error.stack : undefined,
+      });
+    }
+  }
+});
+
+studentRouter.post("/interaction/v2/stream", async (req, res) => {
+  try {
+    const parseResult = interactionV2RequestSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      return res.status(400).json({
+        error: "Invalid request body for /interaction/v2/stream.",
+        details: parseResult.error.flatten(),
+      });
+    }
+
+    const body = parseResult.data;
+    const enableStreaming = body.stream !== false;
+
+    const result = await promptTutorV2(
+      body.promptContext,
+      body.newMessage,
+      res,
+      enableStreaming,
+    );
+
+    const username = body.userId && body.userId !== "" ? body.userId : undefined;
+    const userText = body.newMessage
+      .map((chunk) => (chunk.type === "input_text" ? chunk.text ?? chunk.content ?? "" : "[Image]"))
+      .filter((part) => part.length > 0)
+      .join("\n");
+
+    logResponse({
+      username,
+      userMessage: userText,
+      response:
+        typeof result?.response?.[0]?.content === "string"
+          ? result.response[0].content
+          : "",
+      messages: result.newChatHistory ?? [],
+      courseID: body.courseId ?? "default",
+      assignmentID: body.assignmentId ?? "",
+    });
+  } catch (error) {
+    console.error("Error in /interaction/v2/stream endpoint:", error);
+
     if (!res.headersSent) {
       res.status(500).json({
         error: error.message || "Internal server error",

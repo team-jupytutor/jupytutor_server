@@ -88,8 +88,8 @@ const corsOptions = {
 app.use(cors(corsOptions));
 
 // Middleware
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+app.use(express.json({ limit: "256mb" }));
+app.use(express.urlencoded({ extended: true, limit: "256mb" }));
 
 // Handle formdata parsing for all routes
 app.use((req, res, next) => {

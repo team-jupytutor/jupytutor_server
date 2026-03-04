@@ -6,6 +6,11 @@ import OpenAI, { AzureOpenAI } from "openai";
 import fs from "fs";
 import path from "path";
 import { MODEL_CHOICE } from "./constants.js";
+import {
+  buildPromptContextAsMultimodalContent,
+  multimodalContentToDisplayText,
+  normalizeMultimodalContent,
+} from "../builders/prompt-v2.js";
 
 //   const openAiMessages = [
 //     {role: 'system', content: prompt},
@@ -221,6 +226,120 @@ const processChatHistory = (messages) => {
   });
 };
 
+const cleanMessagesForOpenAI = (messages) =>
+  messages.map((message) => {
+    const { noShow, content, ...rest } = message;
+    const cleaned = { ...rest };
+    if (Array.isArray(content)) {
+      cleaned.content = content.map((item) => {
+        if (!item || typeof item !== "object") {
+          return item;
+        }
+        const { noShow: _ignore, ...cleanItem } = item;
+        return cleanItem;
+      });
+    } else if (content !== undefined) {
+      cleaned.content = content;
+    }
+    return cleaned;
+  });
+
+const shouldLogFullPromptPayload = () => {
+  const value = process.env.DEV_LOG_FULL_PROMPT;
+  return value === "1" || value === "true";
+};
+
+const getPromptLogFilePath = () => {
+  const value = process.env.DEV_LOG_FULL_PROMPT_FILE;
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const logFullPromptPayload = ({ label, instructions, input }) => {
+  if (!shouldLogFullPromptPayload()) {
+    return;
+  }
+
+  const payload = {
+    timestamp: new Date().toISOString(),
+    label,
+    instructions,
+    input,
+  };
+
+  try {
+    const serialized = JSON.stringify(payload, null, 2);
+    const logFilePath = getPromptLogFilePath();
+
+    if (logFilePath) {
+      fs.appendFileSync(logFilePath, `${serialized}\n\n`, "utf8");
+      return;
+    }
+
+    console.log(`[${label}] Full prompt payload:\n${serialized}`);
+  } catch (error) {
+    console.error(`[${label}] Failed to stringify full prompt payload:`, error);
+    console.log(`[${label}] Prompt payload (raw):`, payload);
+  }
+};
+
+const getAssistantTextFromResponseOutput = (outputItems) => {
+  if (!Array.isArray(outputItems)) {
+    return "";
+  }
+
+  const textParts = [];
+  outputItems.forEach((item) => {
+    if (item?.type !== "message") {
+      return;
+    }
+
+    if (typeof item.content === "string") {
+      if (item.content.trim().length > 0) {
+        textParts.push(item.content);
+      }
+      return;
+    }
+
+    if (!Array.isArray(item.content)) {
+      return;
+    }
+
+    const text = item.content
+      .map((part) => {
+        if (!part || typeof part !== "object") {
+          return "";
+        }
+
+        if (typeof part.text === "string") {
+          return part.text;
+        }
+
+        if (
+          part.type === "output_text" &&
+          typeof part?.text === "string" &&
+          part.text.length > 0
+        ) {
+          return part.text;
+        }
+
+        return "";
+      })
+      .join("")
+      .trim();
+
+    if (text.length > 0) {
+      textParts.push(text);
+    }
+  });
+
+  return textParts.join("\n\n").trim();
+};
+
 /**
  * This function is a wrapper around the OpenAI API that can take chat history, a new message, and optional files and return a response from the LLM.
  * @param {Array} chatHistory - The chat history.
@@ -343,21 +462,15 @@ export const promptTutor = async (
 
     const response = await client.responses.create({
       model: model,
-      input: messages.map((m) => {
-        // Strip top-level noShow and any nested noShow within content items
-        const { noShow, content, ...rest } = m;
-        const cleaned = { ...rest };
-        if (Array.isArray(content)) {
-          cleaned.content = content.map((item) => {
-            if (!item || typeof item !== "object") return item;
-            const { noShow: _ignore, ...cleanItem } = item;
-            return cleanItem;
-          });
-        } else if (content !== undefined) {
-          cleaned.content = content;
-        }
-        return cleaned;
-      }),
+      input: (() => {
+        const cleanedInput = cleanMessagesForOpenAI(messages);
+        logFullPromptPayload({
+          label: "promptTutor",
+          instructions,
+          input: cleanedInput,
+        });
+        return cleanedInput;
+      })(),
       instructions,
       stream: stream,
     });
@@ -468,6 +581,147 @@ export const promptTutor = async (
         })}\n\n`,
       );
 
+      res.write("data: [DONE]\n\n");
+      res.end();
+    }
+
+    throw error;
+  }
+};
+
+export const promptTutorV2 = async (
+  promptContext,
+  newMessage,
+  res = null,
+  stream = false,
+) => {
+  try {
+    const contextMessage = {
+      role: "user",
+      content: buildPromptContextAsMultimodalContent(promptContext),
+      noShow: true,
+    };
+    const normalizedNewMessage = normalizeMultimodalContent(newMessage);
+    const studentMessage = {
+      role: "user",
+      content:
+        normalizedNewMessage.length > 0
+          ? normalizedNewMessage
+          : [{ type: "input_text", text: "[No user message provided]" }],
+    };
+    const modelMessages = [contextMessage, studentMessage];
+
+    if (stream && res) {
+      res.setHeader("Content-Type", "text/plain");
+      res.setHeader("Transfer-Encoding", "chunked");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+    }
+
+    const response = await client.responses.create({
+      model: "gpt-5-mini",
+      input: (() => {
+        const cleanedInput = cleanMessagesForOpenAI(modelMessages);
+        logFullPromptPayload({
+          label: "promptTutorV2",
+          input: cleanedInput,
+        });
+        return cleanedInput;
+      })(),
+      stream,
+    });
+
+    const userDisplayText =
+      multimodalContentToDisplayText(studentMessage.content) || "[Image]";
+
+    if (stream && res) {
+      const fullOutput = [];
+      let currentMessage = "";
+      let currentReasoning = "";
+
+      for await (const event of response) {
+        if (event.type === "response.output_text.delta") {
+          const delta = event.delta || "";
+          currentMessage += delta;
+          res.write(
+            `data: ${JSON.stringify({
+              type: "message_delta",
+              content: delta,
+              role: "assistant",
+            })}\n\n`,
+          );
+        } else if (event.type === "response.output_text.done") {
+          if (currentMessage) {
+            fullOutput.push({
+              type: "message",
+              role: "assistant",
+              content: currentMessage,
+            });
+          }
+        } else if (event.type === "response.reasoning.done") {
+          if (currentReasoning) {
+            fullOutput.push({
+              type: "reasoning",
+              content: currentReasoning,
+            });
+          }
+        } else if (event.type === "response.done") {
+          break;
+        }
+      }
+
+      const assistantText = getAssistantTextFromResponseOutput(fullOutput);
+      const newChatHistory = [
+        { role: "user", content: userDisplayText },
+        ...(assistantText.length > 0
+          ? [{ role: "assistant", content: assistantText }]
+          : []),
+      ];
+
+      const finalResponse = {
+        response: fullOutput,
+        newChatHistory,
+        promptSuggestions: [],
+      };
+
+      res.write(
+        `data: ${JSON.stringify({
+          type: "final_response",
+          data: finalResponse,
+        })}\n\n`,
+      );
+      res.write("data: [DONE]\n\n");
+      res.end();
+
+      return finalResponse;
+    }
+
+    const assistantText = getAssistantTextFromResponseOutput(response.output);
+    const finalResponse = {
+      response: response.output,
+      newChatHistory: [
+        { role: "user", content: userDisplayText },
+        ...(assistantText.length > 0
+          ? [{ role: "assistant", content: assistantText }]
+          : []),
+      ],
+      promptSuggestions: [],
+    };
+
+    if (res) {
+      res.json(finalResponse);
+    }
+    return finalResponse;
+  } catch (error) {
+    console.error("Error in promptTutorV2:", error);
+
+    if (stream && res && !res.headersSent) {
+      res.write(
+        `data: ${JSON.stringify({
+          type: "error",
+          error: error.message || "Internal server error",
+        })}\n\n`,
+      );
       res.write("data: [DONE]\n\n");
       res.end();
     }

@@ -16,8 +16,12 @@
           packages = [
             pkgs.nodejs_20
             pkgs.yarn
+            pkgs.screen
+            pkgs.ncurses
           ];
           shellHook = ''
+            export SHELL=${pkgs.bashInteractive}/bin/bash
+            export TERMINFO_DIRS="${pkgs.ncurses}/share/terminfo''${TERMINFO_DIRS:+:$TERMINFO_DIRS}"
             echo "Run: yarn install"
           '';
         };

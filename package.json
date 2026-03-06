@@ -2,7 +2,7 @@
   "name": "jupytutor_server",
   "version": "1.0.0",
   "description": "Server for jupytutor API calls, authentication, and data handling.",
-  "main": "src/app.js",
+  "main": "dist/app.js",
   "repository": "https://github.com/kevyg03/jupytutor_server.git",
   "author": "Kevin Gillespie <kevin.gillespie@berkeley.edu>",
   "license": "MIT",
@@ -19,12 +19,19 @@
     "tiktoken": "^1.0.21"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^22.15.0",
+    "cheerio": "^1.2.0",
     "jest": "^30.0.5",
-    "supertest": "^7.1.4"
+    "supertest": "^7.1.4",
+    "typescript": "^5.7.0"
   },
   "scripts": {
-    "start": "node src/app.js",
-    "reset": "pkill -f 'node src/app.js' && node src/app.js",
-    "stop": "pkill -f 'node src/app.js'"
+    "build": "tsc",
+    "start": "node dist/app.js",
+    "reset": "pkill -f 'node dist/app.js' && node dist/app.js",
+    "stop": "pkill -f 'node dist/app.js'"
   }
 }

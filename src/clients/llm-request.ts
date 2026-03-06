@@ -324,10 +324,10 @@ export async function promptTutor(
         : successInstructions;
 
   // ─── Textbook context (prepended to API input, never returned) ───
-  const context =
-    sourceURLs.length > 0
-      ? resources.getFromURLs(sourceURLs)
-      : "<no_source_materials>";
+  const rawContext =
+    sourceURLs.length > 0 ? resources.getFromURLs(sourceURLs) : "";
+  const textbookContextProvided = rawContext.length > 0;
+  const context = textbookContextProvided ? rawContext : "<no_source_materials>";
 
   // >>>>>>>>>> TEMP LOG — delete after verifying textbook context flow <<<<<<<<<<
   // console.log("\n========== [TEXTBOOK_CONTEXT] ==========");
@@ -357,10 +357,10 @@ export async function promptTutor(
   ];
 
   if (stream && res) {
-    return handleStreaming(cleanedInput, model, instructions, messages, res);
+    return handleStreaming(cleanedInput, model, instructions, messages, res, textbookContextProvided);
   }
 
-  return handleNonStreaming(cleanedInput, model, instructions, messages, res);
+  return handleNonStreaming(cleanedInput, model, instructions, messages, res, textbookContextProvided);
 }
 
 // ─── Streaming response handler ─────────────────────────────────────
@@ -371,6 +371,7 @@ async function handleStreaming(
   instructions: string,
   messages: ChatMessage[],
   res: Response,
+  textbookContextProvided: boolean,
 ): Promise<TutorResponse> {
   res.setHeader("Content-Type", "text/plain");
   res.setHeader("Transfer-Encoding", "chunked");
@@ -421,6 +422,7 @@ async function handleStreaming(
     response: fullOutput,
     newChatHistory: processChatHistory(messages),
     promptSuggestions: [],
+    textbookContextProvided,
   };
 
   res.write(
@@ -440,6 +442,7 @@ async function handleNonStreaming(
   instructions: string,
   messages: ChatMessage[],
   res: Response | null,
+  textbookContextProvided: boolean,
 ): Promise<TutorResponse> {
   const response = await client.responses.create({
     model,
@@ -454,6 +457,7 @@ async function handleNonStreaming(
     response: output,
     newChatHistory: processChatHistory(messages),
     promptSuggestions: [],
+    textbookContextProvided,
   };
 
   if (res) {

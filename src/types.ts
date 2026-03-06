@@ -37,6 +37,7 @@ export interface TutorResponse {
   response: ChatMessage[];
   newChatHistory: ChatMessage[];
   promptSuggestions: string[];
+  textbookContextProvided: boolean;
 }
 
 // ─── Cosmos DB ───────────────────────────────────────────────────────
@@ -49,6 +50,7 @@ export interface JupytutorInteraction {
   assignment_id: string;
   context_without_textbook: string | Record<string, unknown>[];
   student_request: string;
+  textbook_context_provided: boolean;
   response_with_textbook?: string | null;
   response_without_textbook?: string | null;
   timestamp: number;
@@ -64,6 +66,7 @@ export interface LogResponseParams {
   messages: ChatMessage[];
   courseID: string;
   assignmentID: string;
+  textbookContextProvided: boolean;
 }
 
 /** Runtime schema field definition for Cosmos DB validation. */

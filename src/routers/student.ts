@@ -97,6 +97,7 @@ studentRouter.post(
         messages: [...chatHistory, ...result.response],
         courseID: req.body.courseId ?? "default",
         assignmentID: req.body.assignmentId ?? "",
+        textbookContextProvided: result.textbookContextProvided,
       });
     } catch (error: unknown) {
       const err = error as Error;

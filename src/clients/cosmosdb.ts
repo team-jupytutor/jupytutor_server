@@ -37,6 +37,7 @@ export const JUPYTUTOR_INTERACTION_SCHEMA: SchemaDefinition = {
     required: true,
   },
   student_request: { type: "string", required: true },
+  textbook_context_provided: { type: "boolean", required: true },
   response_with_textbook: { type: ["string", "null"], required: false },
   response_without_textbook: { type: ["string", "null"], required: false },
   timestamp: { type: "number", required: true },
@@ -187,6 +188,7 @@ export const logResponse = ({
   messages,
   courseID: course_id,
   assignmentID: assignment_id,
+  textbookContextProvided,
 }: LogResponseParams): void => {
   const timestamp = Date.now();
   const _middleID = assignment_id !== "" ? "--" + assignment_id : "";
@@ -202,6 +204,7 @@ export const logResponse = ({
     assignment_id,
     timestamp,
     student_request: userMessage,
+    textbook_context_provided: textbookContextProvided, // if this is not present, then it was false
     response_with_textbook: response,
     model_used: MODEL_CHOICE,
     context_without_textbook: messages.slice(

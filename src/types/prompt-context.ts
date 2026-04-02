@@ -1,20 +1,18 @@
 import { z } from "zod";
 
-// NOTE: This schema duplicates the prompt-context client types in
-// `jupytutor/src/helpers/prompt-context/prompt-context.ts`.
-// Keep both files in sync whenever the prompt-context format changes.
-
 const inputTextChunkSchema = z
   .object({
     type: z.literal("input_text"),
-    // `content` is used by promptContext payloads from the client.
     content: z.string().optional(),
-    // `text` matches OpenAI's multimodal input part shape.
     text: z.string().optional(),
   })
-  .refine((value) => typeof value.content === "string" || typeof value.text === "string", {
-    message: "input_text chunk must include either `content` or `text`.",
-  });
+  .refine(
+    (value) =>
+      typeof value.content === "string" || typeof value.text === "string",
+    {
+      message: "input_text chunk must include either `content` or `text`.",
+    },
+  );
 
 const inputImageChunkSchema = z.object({
   type: z.literal("input_image"),
@@ -106,3 +104,11 @@ export const interactionV2RequestSchema = z.object({
   courseId: z.string().optional(),
   assignmentId: z.string().optional(),
 });
+
+export type MultimodalContentChunk = z.infer<
+  typeof multimodalContentChunkSchema
+>;
+export type MultimodalContent = z.infer<typeof multimodalContentSchema>;
+export type PromptContextCell = z.infer<typeof promptContextCellSchema>;
+export type PromptContext = z.infer<typeof promptContextSchema>;
+export type InteractionV2Request = z.infer<typeof interactionV2RequestSchema>;

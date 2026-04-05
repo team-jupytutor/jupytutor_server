@@ -67,6 +67,8 @@ export interface LogResponseParams {
   courseID: string;
   assignmentID: string;
   textbookContextProvided: boolean;
+  notebookContext?: string;
+  apiVersion: "v1" | "v2";
 }
 
 /** Runtime schema field definition for Cosmos DB validation. */

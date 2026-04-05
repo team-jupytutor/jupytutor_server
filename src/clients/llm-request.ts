@@ -255,7 +255,9 @@ function processChatHistory(messages: ChatMessage[]): ChatMessage[] {
   });
 }
 
-function getAssistantTextFromResponseOutput(outputItems: ChatMessage[]): string {
+function getAssistantTextFromResponseOutput(
+  outputItems: ChatMessage[],
+): string {
   const textParts: string[] = [];
 
   outputItems.forEach((item) => {
@@ -387,7 +389,9 @@ export async function promptTutor(
   const rawContext =
     sourceURLs.length > 0 ? resources.getFromURLs(sourceURLs) : "";
   const textbookContextProvided = rawContext.length > 0;
-  const context = textbookContextProvided ? rawContext : "<no_source_materials>";
+  const context = textbookContextProvided
+    ? rawContext
+    : "<no_source_materials>";
 
   // >>>>>>>>>> TEMP LOG — delete after verifying textbook context flow <<<<<<<<<<
   // console.log("\n========== [TEXTBOOK_CONTEXT] ==========");
@@ -417,10 +421,24 @@ export async function promptTutor(
   ];
 
   if (stream && res) {
-    return handleStreaming(cleanedInput, model, instructions, messages, res, textbookContextProvided);
+    return handleStreaming(
+      cleanedInput,
+      model,
+      instructions,
+      messages,
+      res,
+      textbookContextProvided,
+    );
   }
 
-  return handleNonStreaming(cleanedInput, model, instructions, messages, res, textbookContextProvided);
+  return handleNonStreaming(
+    cleanedInput,
+    model,
+    instructions,
+    messages,
+    res,
+    textbookContextProvided,
+  );
 }
 
 export async function promptTutorV2(
@@ -429,6 +447,16 @@ export async function promptTutorV2(
   res: Response | null = null,
   stream = false,
 ): Promise<TutorResponse> {
+  const sourceLinks = Object.keys(promptContext.resources ?? {}).filter(
+    (key) => !key.startsWith("_"),
+  );
+  for (const link of sourceLinks) {
+    const resolved = resources.get(link);
+    if (resolved !== undefined) {
+      promptContext.resources[link] = resolved;
+    }
+  }
+
   const contextMessage: ChatMessage = {
     role: "user",
     content: buildPromptContextAsMultimodalContent(promptContext),

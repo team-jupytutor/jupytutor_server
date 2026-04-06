@@ -64,14 +64,19 @@ function ensureTextChunkSeparation(text: string): string {
   return `${text}\n\n`;
 }
 
-function asTextChunk(text: string): Extract<MessageContentPart, { type: "input_text" }> {
+function asTextChunk(
+  text: string,
+): Extract<MessageContentPart, { type: "input_text" }> {
   return {
     type: "input_text",
     text: ensureTextChunkSeparation(text),
   };
 }
 
-function pushText(chunks: MessageContentPart[], text: string | undefined): void {
+function pushText(
+  chunks: MessageContentPart[],
+  text: string | undefined,
+): void {
   if (typeof text !== "string" || text.trim().length === 0) {
     return;
   }
@@ -107,7 +112,9 @@ function renderTemplateWithChunks(
   return chunks;
 }
 
-function multimodalToChunks(multimodalContent: MultimodalContent): MessageContentPart[] {
+function multimodalToChunks(
+  multimodalContent: MultimodalContent,
+): MessageContentPart[] {
   const normalized = normalizeMultimodalContent(multimodalContent);
   if (normalized.length === 0) {
     return [asTextChunk("[No content]")];
@@ -187,9 +194,7 @@ function renderResourcesMarkdown(
     return "[none]";
   }
 
-  return entries
-    .map(([url, value]) => `### Source: ${url}\n\n${value}`)
-    .join("\n\n");
+  return entries.map(([, value]) => value).join("\n\n");
 }
 
 function renderFilteredCellsChunks(
@@ -232,6 +237,40 @@ export function buildPromptContextAsMultimodalContent(
     filtered_cells_body: renderFilteredCellsChunks(filteredCells),
     active_cell_body: renderActiveCellChunks(activeCell),
   });
+}
+
+function chunksToText(chunks: MessageContentPart[]): string {
+  return chunks
+    .map((c) => (c.type === "input_text" ? c.text : "[Image]"))
+    .join("")
+    .trim();
+}
+
+export function buildNotebookContextForLogging(
+  promptContext: PromptContext,
+): string {
+  const filteredCells = promptContext.notebook.filteredCells.cells ?? [];
+  const activeCell = promptContext.activeCellContext;
+
+  const sections: string[] = [];
+
+  sections.push(
+    `## Notebook Overview\n\n${promptContext.notebook.overview || "[none]"}`,
+  );
+
+  sections.push(
+    [
+      "## Notebook Cells",
+      promptContext.notebook.filteredCells._description || "[none]",
+      chunksToText(renderFilteredCellsChunks(filteredCells)),
+    ].join("\n\n"),
+  );
+
+  sections.push(
+    `## Active Cell\n\n${chunksToText(renderActiveCellChunks(activeCell))}`,
+  );
+
+  return sections.join("\n\n");
 }
 
 export function multimodalContentToDisplayText(

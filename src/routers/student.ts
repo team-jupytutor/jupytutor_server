@@ -9,6 +9,7 @@ import express from "express";
 import type { Request, Response } from "express";
 import { promptTutor, promptTutorV2 } from "../clients/llm-request.js";
 import { logResponse } from "../clients/cosmosdb.js";
+import { buildNotebookContextForLogging } from "../builders/prompt-v2.js";
 import { interactionV2RequestSchema } from "../types/prompt-context.js";
 import type { ChatMessage, UploadedFile } from "../types.js";
 
@@ -99,6 +100,7 @@ studentRouter.post(
         courseID: req.body.courseId ?? "default",
         assignmentID: req.body.assignmentId ?? "",
         textbookContextProvided: result.textbookContextProvided,
+        apiVersion: "v1",
       });
     } catch (error: unknown) {
       const err = error as Error;
@@ -141,14 +143,15 @@ studentRouter.post(
         enableStreaming,
       );
 
-      const username = body.userId && body.userId !== "" ? body.userId : undefined;
+      const username =
+        body.userId && body.userId !== "" ? body.userId : undefined;
       const userText = body.newMessage
-        .map((chunk) =>
+        .map((chunk: any) =>
           chunk.type === "input_text"
             ? (chunk.text ?? chunk.content ?? "")
             : "[Image]",
         )
-        .filter((part) => part.length > 0)
+        .filter((part: any) => part.length > 0)
         .join("\n");
 
       logResponse({
@@ -162,6 +165,8 @@ studentRouter.post(
         courseID: body.courseId ?? "default",
         assignmentID: body.assignmentId ?? "",
         textbookContextProvided: result.textbookContextProvided,
+        notebookContext: buildNotebookContextForLogging(body.promptContext),
+        apiVersion: "v2",
       });
     } catch (error: unknown) {
       const err = error as Error;

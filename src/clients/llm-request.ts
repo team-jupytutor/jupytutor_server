@@ -19,6 +19,15 @@ import type {
   TutorResponse,
   UploadedFile,
 } from "../types.js";
+import type {
+  MultimodalContent,
+  PromptContext,
+} from "../types/prompt-context.js";
+import {
+  buildPromptContextAsMultimodalContent,
+  multimodalContentToDisplayText,
+  normalizeMultimodalContent,
+} from "../builders/prompt-v2.js";
 import resources from "../books/index.js";
 
 export { MODEL_CHOICE };
@@ -246,6 +255,59 @@ function processChatHistory(messages: ChatMessage[]): ChatMessage[] {
   });
 }
 
+function getAssistantTextFromResponseOutput(
+  outputItems: ChatMessage[],
+): string {
+  const textParts: string[] = [];
+
+  outputItems.forEach((item) => {
+    if (item?.type !== "message") {
+      return;
+    }
+
+    if (typeof item.content === "string") {
+      if (item.content.trim().length > 0) {
+        textParts.push(item.content);
+      }
+      return;
+    }
+
+    if (!Array.isArray(item.content)) {
+      return;
+    }
+
+    const text = item.content
+      .map((part) => {
+        if (!part || typeof part !== "object") {
+          return "";
+        }
+
+        if ("text" in part && typeof part.text === "string") {
+          return part.text;
+        }
+
+        return "";
+      })
+      .join("")
+      .trim();
+
+    if (text.length > 0) {
+      textParts.push(text);
+    }
+  });
+
+  return textParts.join("\n\n").trim();
+}
+
+function promptContextHasResources(promptContext: PromptContext): boolean {
+  return Object.entries(promptContext.resources ?? {}).some(
+    ([key, value]) =>
+      key !== "_description" &&
+      typeof value === "string" &&
+      value.trim().length > 0,
+  );
+}
+
 /**
  * Send a message (with optional files and history) to the tutoring LLM.
  *
@@ -327,7 +389,9 @@ export async function promptTutor(
   const rawContext =
     sourceURLs.length > 0 ? resources.getFromURLs(sourceURLs) : "";
   const textbookContextProvided = rawContext.length > 0;
-  const context = textbookContextProvided ? rawContext : "<no_source_materials>";
+  const context = textbookContextProvided
+    ? rawContext
+    : "<no_source_materials>";
 
   // >>>>>>>>>> TEMP LOG — delete after verifying textbook context flow <<<<<<<<<<
   // console.log("\n========== [TEXTBOOK_CONTEXT] ==========");
@@ -357,10 +421,171 @@ export async function promptTutor(
   ];
 
   if (stream && res) {
-    return handleStreaming(cleanedInput, model, instructions, messages, res, textbookContextProvided);
+    return handleStreaming(
+      cleanedInput,
+      model,
+      instructions,
+      messages,
+      res,
+      textbookContextProvided,
+    );
   }
 
-  return handleNonStreaming(cleanedInput, model, instructions, messages, res, textbookContextProvided);
+  return handleNonStreaming(
+    cleanedInput,
+    model,
+    instructions,
+    messages,
+    res,
+    textbookContextProvided,
+  );
+}
+
+export async function promptTutorV2(
+  promptContext: PromptContext,
+  newMessage: MultimodalContent,
+  res: Response | null = null,
+  stream = false,
+): Promise<TutorResponse> {
+  const sourceLinks = Object.keys(promptContext.resources ?? {}).filter(
+    (key) => !key.startsWith("_"),
+  );
+  for (const link of sourceLinks) {
+    const resolved = resources.get(link);
+    if (resolved !== undefined) {
+      promptContext.resources[link] = resolved;
+    }
+  }
+
+  const contextMessage: ChatMessage = {
+    role: "user",
+    content: buildPromptContextAsMultimodalContent(promptContext),
+    noShow: true,
+  };
+  const normalizedNewMessage = normalizeMultimodalContent(newMessage);
+  const studentMessage: ChatMessage = {
+    role: "user",
+    content:
+      normalizedNewMessage.length > 0
+        ? normalizedNewMessage
+        : [{ type: "input_text", text: "[No user message provided]" }],
+  };
+  const modelMessages = [contextMessage, studentMessage];
+  const textbookContextProvided = promptContextHasResources(promptContext);
+  const studentDisplayContent = Array.isArray(studentMessage.content)
+    ? studentMessage.content
+    : [];
+
+  if (stream && res) {
+    res.setHeader("Content-Type", "text/plain");
+    res.setHeader("Transfer-Encoding", "chunked");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+  }
+
+  try {
+    const response = await client.responses.create({
+      model: "gpt-5-mini",
+      input: modelMessages.map(cleanMessageForAPI) as never,
+      stream,
+    });
+
+    const userDisplayText =
+      multimodalContentToDisplayText(studentDisplayContent) || "[Image]";
+
+    if (stream && res) {
+      const streamingResponse = response as AsyncIterable<unknown>;
+      const fullOutput: ChatMessage[] = [];
+      let currentMessage = "";
+      let currentReasoning = "";
+
+      for await (const event of streamingResponse) {
+        const ev = event as unknown as Record<string, unknown>;
+        const eventType = ev.type as string;
+
+        if (eventType === "response.output_text.delta") {
+          const delta = (ev.delta as string) || "";
+          currentMessage += delta;
+          res.write(
+            `data: ${JSON.stringify({ type: "message_delta", content: delta, role: "assistant" })}\n\n`,
+          );
+        } else if (eventType === "response.output_text.done") {
+          if (currentMessage) {
+            fullOutput.push({
+              type: "message",
+              role: "assistant",
+              content: currentMessage,
+            });
+          }
+        } else if (eventType === "response.reasoning.done") {
+          if (currentReasoning) {
+            fullOutput.push({ type: "reasoning", content: currentReasoning });
+          }
+        } else if (eventType === "response.done") {
+          break;
+        }
+      }
+
+      const assistantText = getAssistantTextFromResponseOutput(fullOutput);
+      const newChatHistory: ChatMessage[] = [
+        { role: "user", content: userDisplayText },
+        ...(assistantText.length > 0
+          ? [{ role: "assistant", content: assistantText } as ChatMessage]
+          : []),
+      ];
+      const finalResponse: TutorResponse = {
+        response: fullOutput,
+        newChatHistory,
+        promptSuggestions: [],
+        textbookContextProvided,
+      };
+
+      res.write(
+        `data: ${JSON.stringify({ type: "final_response", data: finalResponse })}\n\n`,
+      );
+      res.write("data: [DONE]\n\n");
+      res.end();
+
+      return finalResponse;
+    }
+
+    const output = (response as unknown as { output: ChatMessage[] }).output;
+    const assistantText = getAssistantTextFromResponseOutput(output);
+    const newChatHistory: ChatMessage[] = [
+      { role: "user", content: userDisplayText },
+      ...(assistantText.length > 0
+        ? [{ role: "assistant", content: assistantText } as ChatMessage]
+        : []),
+    ];
+    const finalResponse: TutorResponse = {
+      response: output,
+      newChatHistory,
+      promptSuggestions: [],
+      textbookContextProvided,
+    };
+
+    if (res) {
+      res.json(finalResponse);
+    }
+
+    return finalResponse;
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error("Error in promptTutorV2:", err);
+
+    if (stream && res && !res.headersSent) {
+      res.write(
+        `data: ${JSON.stringify({
+          type: "error",
+          error: err.message || "Internal server error",
+        })}\n\n`,
+      );
+      res.write("data: [DONE]\n\n");
+      res.end();
+    }
+
+    throw err;
+  }
 }
 
 // ─── Streaming response handler ─────────────────────────────────────

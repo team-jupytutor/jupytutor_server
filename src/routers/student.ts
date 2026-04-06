@@ -7,8 +7,10 @@
 
 import express from "express";
 import type { Request, Response } from "express";
-import { promptTutor } from "../clients/llm-request.js";
+import { promptTutor, promptTutorV2 } from "../clients/llm-request.js";
 import { logResponse } from "../clients/cosmosdb.js";
+import { buildNotebookContextForLogging } from "../builders/prompt-v2.js";
+import { interactionV2RequestSchema } from "../types/prompt-context.js";
 import type { ChatMessage, UploadedFile } from "../types.js";
 
 const studentRouter = express.Router();
@@ -98,6 +100,7 @@ studentRouter.post(
         courseID: req.body.courseId ?? "default",
         assignmentID: req.body.assignmentId ?? "",
         textbookContextProvided: result.textbookContextProvided,
+        apiVersion: "v1",
       });
     } catch (error: unknown) {
       const err = error as Error;
@@ -117,5 +120,67 @@ studentRouter.post(
 studentRouter.post("/end", (_req: Request, res: Response) => {
   res.send("Create a new user");
 });
+
+studentRouter.post(
+  "/interaction/v2/stream",
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const parseResult = interactionV2RequestSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        res.status(400).json({
+          error: "Invalid request body for /interaction/v2/stream.",
+          details: parseResult.error.flatten(),
+        });
+        return;
+      }
+
+      const body = parseResult.data;
+      const enableStreaming = body.stream !== false;
+      const result = await promptTutorV2(
+        body.promptContext,
+        body.newMessage,
+        res,
+        enableStreaming,
+      );
+
+      const username =
+        body.userId && body.userId !== "" ? body.userId : undefined;
+      const userText = body.newMessage
+        .map((chunk: any) =>
+          chunk.type === "input_text"
+            ? (chunk.text ?? chunk.content ?? "")
+            : "[Image]",
+        )
+        .filter((part: any) => part.length > 0)
+        .join("\n");
+
+      logResponse({
+        username,
+        userMessage: userText,
+        response:
+          typeof result.response[0]?.content === "string"
+            ? result.response[0].content
+            : "",
+        messages: result.newChatHistory,
+        courseID: body.courseId ?? "default",
+        assignmentID: body.assignmentId ?? "",
+        textbookContextProvided: result.textbookContextProvided,
+        notebookContext: buildNotebookContextForLogging(body.promptContext),
+        apiVersion: "v2",
+      });
+    } catch (error: unknown) {
+      const err = error as Error;
+      console.error("Error in /interaction/v2/stream endpoint:", err);
+
+      if (!res.headersSent) {
+        res.status(500).json({
+          error: err.message || "Internal server error",
+          details:
+            process.env.NODE_ENV === "development" ? err.stack : undefined,
+        });
+      }
+    }
+  },
+);
 
 export default studentRouter;

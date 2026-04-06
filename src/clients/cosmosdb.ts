@@ -189,6 +189,8 @@ export const logResponse = ({
   courseID: course_id,
   assignmentID: assignment_id,
   textbookContextProvided,
+  notebookContext,
+  apiVersion,
 }: LogResponseParams): void => {
   const timestamp = Date.now();
   const _middleID = assignment_id !== "" ? "--" + assignment_id : "";
@@ -207,10 +209,11 @@ export const logResponse = ({
     textbook_context_provided: textbookContextProvided, // if this is not present, then it was false
     response_with_textbook: response,
     model_used: MODEL_CHOICE,
-    context_without_textbook: messages.slice(
+    context_without_textbook: notebookContext ?? messages.slice(
       0,
       messages.length - 2,
     ) as unknown as Record<string, unknown>[],
+    api_version: apiVersion,
   };
 
   jupytutorInteractionStore.upsert(interaction).catch((err) => {

@@ -16,7 +16,7 @@ variable "resource_group_name" {
 }
 
 variable "name_suffix" {
-  description = "Suffix used for globally unique Azure resource names such as App Service, Cosmos DB, and Azure OpenAI."
+  description = "Human-readable environment suffix used in generated Azure resource names."
   type        = string
   default     = "dev"
 
@@ -78,17 +78,6 @@ variable "allowed_origins" {
   ]
 }
 
-variable "hmac_key" {
-  description = "Secret used by the app to pseudo-anonymize student IDs. Must be at least 32 characters."
-  type        = string
-  sensitive   = true
-
-  validation {
-    condition     = length(var.hmac_key) >= 32
-    error_message = "hmac_key must be at least 32 characters."
-  }
-}
-
 variable "extra_app_settings" {
   description = "Additional App Service app settings."
   type        = map(string)
@@ -126,8 +115,8 @@ variable "cosmos_container_throughput" {
   default     = null
 }
 
-variable "azure_openai_deployments" {
-  description = "Azure OpenAI model deployments. The app currently uses deployment name gpt-5-mini from src/clients/constants.ts."
+variable "azure_foundry_deployments" {
+  description = "Azure AI Foundry OpenAI model deployments. The app currently uses deployment name gpt-5-mini from src/clients/constants.ts."
   type = map(object({
     model_name    = string
     model_version = string
@@ -144,8 +133,8 @@ variable "azure_openai_deployments" {
   }
 }
 
-variable "azure_openai_deployment_name" {
-  description = "Azure OpenAI deployment name the App Service should use."
+variable "azure_foundry_deployment_name" {
+  description = "Azure AI Foundry deployment name the App Service should use."
   type        = string
   default     = "gpt-5-mini"
 }

@@ -1,5 +1,5 @@
 /**
- * Azure OpenAI integration for the Jupytutor tutoring LLM.
+ * Azure AI Foundry integration for the Jupytutor tutoring LLM.
  *
  * Handles prompt construction, file processing (images, code, text),
  * streaming / non-streaming responses, and chat-history management.
@@ -8,7 +8,7 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-import { AzureOpenAI } from "openai";
+import OpenAI from "openai";
 import fs from "fs";
 import path from "path";
 import { MODEL_CHOICE } from "./constants.js";
@@ -32,32 +32,29 @@ import resources from "../books/index.js";
 
 export { MODEL_CHOICE };
 
-const DEFAULT_AZURE_OPENAI_API_VERSION = "2025-04-01-preview";
-const DEFAULT_AZURE_OPENAI_BASE_URL =
-  "https://jupytutor.openai.azure.com/openai/responses?api-version=2025-04-01-preview";
+const DEFAULT_AZURE_FOUNDRY_BASE_URL =
+  "https://jupytutor.openai.azure.com/openai/v1/";
 
-function buildAzureOpenAIBaseURL(): string {
-  if (process.env.AZURE_OPENAI_BASE_URL) {
-    return process.env.AZURE_OPENAI_BASE_URL;
+function buildAzureFoundryBaseURL(): string {
+  if (process.env.AZURE_FOUNDRY_BASE_URL) {
+    return process.env.AZURE_FOUNDRY_BASE_URL;
   }
 
-  const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
-  const apiVersion =
-    process.env.AZURE_OPENAI_API_VERSION ?? DEFAULT_AZURE_OPENAI_API_VERSION;
+  const endpoint = process.env.AZURE_FOUNDRY_ENDPOINT;
 
   if (!endpoint) {
-    return DEFAULT_AZURE_OPENAI_BASE_URL;
+    return DEFAULT_AZURE_FOUNDRY_BASE_URL;
   }
 
-  return `${endpoint.replace(/\/$/, "")}/openai/responses?api-version=${apiVersion}`;
+  return `${endpoint.replace(/\/$/, "")}/openai/v1/`;
 }
 
-const client = new AzureOpenAI({
-  apiKey: process.env.AZURE_OPENAI_API_KEY ?? process.env.AZURE_OPEN_AI_KEY,
-  baseURL: buildAzureOpenAIBaseURL(),
-  apiVersion:
-    process.env.AZURE_OPENAI_API_VERSION ?? DEFAULT_AZURE_OPENAI_API_VERSION,
-  deployment: process.env.AZURE_OPENAI_DEPLOYMENT ?? MODEL_CHOICE,
+const client = new OpenAI({
+  apiKey: process.env.AZURE_FOUNDRY_API_KEY,
+  baseURL: buildAzureFoundryBaseURL(),
+  defaultHeaders: {
+    "api-key": process.env.AZURE_FOUNDRY_API_KEY,
+  },
 });
 
 type ImageMimeType =
@@ -395,7 +392,7 @@ export async function promptTutor(
       return IMAGE_EXTENSIONS.has(ext) || detectImageMime(f.buffer) !== null;
     }) ?? hasImagesInMessages(messages);
 
-  const model = process.env.AZURE_OPENAI_DEPLOYMENT ?? MODEL_CHOICE;
+  const model = process.env.AZURE_FOUNDRY_DEPLOYMENT ?? MODEL_CHOICE;
   const instructions =
     cellType === "grader"
       ? graderInstructions
@@ -503,7 +500,7 @@ export async function promptTutorV2(
 
   try {
     const response = await client.responses.create({
-      model: process.env.AZURE_OPENAI_DEPLOYMENT ?? MODEL_CHOICE,
+      model: process.env.AZURE_FOUNDRY_DEPLOYMENT ?? MODEL_CHOICE,
       input: modelMessages.map(cleanMessageForAPI) as never,
       stream,
     });

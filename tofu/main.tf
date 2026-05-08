@@ -1,6 +1,9 @@
 locals {
   normalized_prefix = lower(replace(var.project_name, "/[^a-zA-Z0-9-]/", "-"))
   compact_prefix    = lower(replace(var.project_name, "/[^a-zA-Z0-9]/", ""))
+  app_suffix        = "${var.name_suffix}-${random_id.app_service.hex}"
+  cosmos_suffix     = "${var.name_suffix}-${random_id.cosmos.hex}"
+  foundry_suffix    = "${var.name_suffix}-${random_id.foundry.hex}"
 }
 
 resource "azurerm_resource_group" "main" {
@@ -22,8 +25,25 @@ resource "azurerm_service_plan" "main" {
   tags                = var.tags
 }
 
+resource "random_password" "hmac_key" {
+  length  = 64
+  special = false
+}
+
+resource "random_id" "app_service" {
+  byte_length = 3
+}
+
+resource "random_id" "cosmos" {
+  byte_length = 3
+}
+
+resource "random_id" "foundry" {
+  byte_length = 3
+}
+
 resource "azurerm_linux_web_app" "main" {
-  name                = "${local.normalized_prefix}-app-${var.name_suffix}"
+  name                = "${local.normalized_prefix}-app-${local.app_suffix}"
   resource_group_name = azurerm_resource_group.main.name
   location            = var.location
   service_plan_id     = azurerm_service_plan.main.id
@@ -58,12 +78,11 @@ resource "azurerm_linux_web_app" "main" {
       COSMOS_DB_MASTER_KEY           = azurerm_cosmosdb_account.main.primary_key
       COSMOS_DB_DATABASE_NAME        = azurerm_cosmosdb_sql_database.main.name
       COSMOS_DB_CONTAINER_NAME       = azurerm_cosmosdb_sql_container.interactions.name
-      AZURE_OPEN_AI_KEY              = azurerm_cognitive_account.openai.primary_access_key
-      AZURE_OPENAI_API_KEY           = azurerm_cognitive_account.openai.primary_access_key
-      AZURE_OPENAI_ENDPOINT          = azurerm_cognitive_account.openai.endpoint
-      AZURE_OPENAI_API_VERSION       = "2025-04-01-preview"
-      AZURE_OPENAI_DEPLOYMENT        = var.azure_openai_deployment_name
-      HMAC_KEY                       = var.hmac_key
+      AZURE_FOUNDRY_API_KEY          = azurerm_cognitive_account.foundry.primary_access_key
+      AZURE_FOUNDRY_ENDPOINT         = azurerm_cognitive_account.foundry.endpoint
+      AZURE_FOUNDRY_BASE_URL         = "${azurerm_cognitive_account.foundry.endpoint}openai/v1/"
+      AZURE_FOUNDRY_DEPLOYMENT       = var.azure_foundry_deployment_name
+      HMAC_KEY                       = random_password.hmac_key.result
     },
     var.extra_app_settings,
   )
@@ -74,7 +93,7 @@ resource "azurerm_linux_web_app" "main" {
 }
 
 resource "azurerm_cosmosdb_account" "main" {
-  name                = "${local.normalized_prefix}-cosmos-${var.name_suffix}"
+  name                = "${local.normalized_prefix}-cosmos-${local.cosmos_suffix}"
   resource_group_name = azurerm_resource_group.main.name
   location            = var.location
   offer_type          = "Standard"
@@ -119,21 +138,26 @@ resource "azurerm_cosmosdb_sql_container" "interactions" {
   throughput            = var.cosmos_serverless ? null : var.cosmos_container_throughput
 }
 
-resource "azurerm_cognitive_account" "openai" {
-  name                          = "${local.normalized_prefix}-openai-${var.name_suffix}"
-  custom_subdomain_name         = "${substr(local.compact_prefix, 0, 43)}aoai${var.name_suffix}"
+resource "azurerm_cognitive_account" "foundry" {
+  name                          = "${local.normalized_prefix}-foundry-${local.foundry_suffix}"
+  custom_subdomain_name         = "${substr(local.compact_prefix, 0, 38)}aoai${local.foundry_suffix}"
   resource_group_name           = azurerm_resource_group.main.name
   location                      = var.location
-  kind                          = "OpenAI"
+  kind                          = "AIServices"
   sku_name                      = "S0"
+  project_management_enabled    = true
   public_network_access_enabled = true
   tags                          = var.tags
+
+  identity {
+    type = "SystemAssigned"
+  }
 }
 
-resource "azurerm_cognitive_deployment" "openai" {
-  for_each             = var.azure_openai_deployments
+resource "azurerm_cognitive_deployment" "foundry" {
+  for_each             = var.azure_foundry_deployments
   name                 = each.key
-  cognitive_account_id = azurerm_cognitive_account.openai.id
+  cognitive_account_id = azurerm_cognitive_account.foundry.id
 
   model {
     format  = "OpenAI"
@@ -145,4 +169,14 @@ resource "azurerm_cognitive_deployment" "openai" {
     name     = each.value.sku_name
     capacity = each.value.capacity
   }
+}
+
+moved {
+  from = azurerm_cognitive_account.openai
+  to   = azurerm_cognitive_account.foundry
+}
+
+moved {
+  from = azurerm_cognitive_deployment.openai
+  to   = azurerm_cognitive_deployment.foundry
 }

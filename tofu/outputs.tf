@@ -28,13 +28,12 @@ output "cosmos_container_name" {
   value       = azurerm_cosmosdb_sql_container.interactions.name
 }
 
-output "azure_openai_endpoint" {
-  description = "Azure OpenAI endpoint."
-  value       = azurerm_cognitive_account.openai.endpoint
+output "azure_foundry_endpoint" {
+  description = "Azure AI Foundry endpoint."
+  value       = azurerm_cognitive_account.foundry.endpoint
 }
 
-output "azure_openai_deployments" {
-  description = "Azure OpenAI deployment names."
-  value       = keys(azurerm_cognitive_deployment.openai)
+output "azure_foundry_deployments" {
+  description = "Azure AI Foundry deployment names."
+  value       = keys(azurerm_cognitive_deployment.foundry)
 }
-

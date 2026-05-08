@@ -9,7 +9,7 @@
 
 import { CosmosClient } from "@azure/cosmos";
 import crypto from "crypto";
-import { MODEL_CHOICE } from "./constants.js";
+import { getFoundryDeployment } from "./constants.js";
 import type {
   SchemaDefinition,
   InteractionKeys,
@@ -208,7 +208,7 @@ export const logResponse = ({
     student_request: userMessage,
     textbook_context_provided: textbookContextProvided, // if this is not present, then it was false
     response_with_textbook: response,
-    model_used: MODEL_CHOICE,
+    model_used: getFoundryDeployment(),
     context_without_textbook: notebookContext ?? messages.slice(
       0,
       messages.length - 2,

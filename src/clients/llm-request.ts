@@ -11,7 +11,7 @@ dotenv.config();
 import OpenAI from "openai";
 import fs from "fs";
 import path from "path";
-import { MODEL_CHOICE } from "./constants.js";
+import { getFoundryDeployment } from "./constants.js";
 import type { Response } from "express";
 import type {
   ChatMessage,
@@ -30,7 +30,7 @@ import {
 } from "../builders/prompt-v2.js";
 import resources from "../books/index.js";
 
-export { MODEL_CHOICE };
+export { getFoundryDeployment };
 
 const DEFAULT_AZURE_FOUNDRY_BASE_URL =
   "https://jupytutor.openai.azure.com/openai/v1/";
@@ -392,7 +392,7 @@ export async function promptTutor(
       return IMAGE_EXTENSIONS.has(ext) || detectImageMime(f.buffer) !== null;
     }) ?? hasImagesInMessages(messages);
 
-  const model = process.env.AZURE_FOUNDRY_DEPLOYMENT ?? MODEL_CHOICE;
+  const model = getFoundryDeployment();
   const instructions =
     cellType === "grader"
       ? graderInstructions
@@ -500,7 +500,7 @@ export async function promptTutorV2(
 
   try {
     const response = await client.responses.create({
-      model: process.env.AZURE_FOUNDRY_DEPLOYMENT ?? MODEL_CHOICE,
+      model: getFoundryDeployment(),
       input: modelMessages.map(cleanMessageForAPI) as never,
       stream,
     });

@@ -58,14 +58,6 @@ resource "azurerm_linux_web_app" "main" {
     application_stack {
       node_version = var.node_version
     }
-
-    dynamic "cors" {
-      for_each = length(var.allowed_origins) > 0 ? [1] : []
-      content {
-        allowed_origins     = var.allowed_origins
-        support_credentials = true
-      }
-    }
   }
 
   app_settings = merge(

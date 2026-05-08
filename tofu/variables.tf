@@ -66,18 +66,6 @@ variable "startup_command" {
   default     = "npm start"
 }
 
-variable "allowed_origins" {
-  description = "CORS origins allowed by Azure App Service. Application-level CORS is still controlled in src/app.ts."
-  type        = list(string)
-  default = [
-    "http://localhost:8888",
-    "http://127.0.0.1:8888",
-    "http://localhost:8889",
-    "http://127.0.0.1:8889",
-    "https://datahub.berkeley.edu",
-  ]
-}
-
 variable "extra_app_settings" {
   description = "Additional App Service app settings."
   type        = map(string)

@@ -7,7 +7,7 @@ RESOURCE_GROUP="${RESOURCE_GROUP:-}"
 WEBAPP_NAME="${WEBAPP_NAME:-}"
 SLOT_NAME="${SLOT_NAME:-Production}"
 ARTIFACT_PATH="${ARTIFACT_PATH:-$ROOT_DIR/app-service-package.zip}"
-DEPLOY_ASYNC="${DEPLOY_ASYNC:-false}"
+DEPLOY_ASYNC="${DEPLOY_ASYNC:-true}"
 DRY_RUN="${DRY_RUN:-false}"
 
 require_command() {
@@ -42,6 +42,7 @@ echo "Deploying to Azure App Service: $WEBAPP_NAME"
 echo "Resource group: $RESOURCE_GROUP"
 echo "Slot: $SLOT_NAME"
 echo "Artifact: $ARTIFACT_PATH"
+echo "Async deploy: $DEPLOY_ASYNC"
 
 npm install
 npm run build --if-present
@@ -87,3 +88,10 @@ if [ "$SLOT_NAME" != "Production" ]; then
 fi
 
 az webapp deploy "${deploy_args[@]}"
+
+if [ "$DEPLOY_ASYNC" = "true" ]; then
+  echo
+  echo "Deployment submitted. Check status with:"
+  echo "az webapp log deployment list --resource-group '$RESOURCE_GROUP' --name '$WEBAPP_NAME' -o table"
+  echo "az webapp log deployment show --resource-group '$RESOURCE_GROUP' --name '$WEBAPP_NAME' -o table"
+fi

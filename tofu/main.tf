@@ -81,7 +81,7 @@ resource "azurerm_linux_web_app" "main" {
       AZURE_FOUNDRY_API_KEY          = azurerm_cognitive_account.foundry.primary_access_key
       AZURE_FOUNDRY_ENDPOINT         = azurerm_cognitive_account.foundry.endpoint
       AZURE_FOUNDRY_BASE_URL         = "${azurerm_cognitive_account.foundry.endpoint}openai/v1/"
-      AZURE_FOUNDRY_DEPLOYMENT       = var.azure_foundry_deployment_name
+      AZURE_FOUNDRY_DEPLOYMENT       = one(keys(var.azure_foundry_deployments))
       HMAC_KEY                       = random_password.hmac_key.result
     },
     var.extra_app_settings,

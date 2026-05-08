@@ -116,7 +116,7 @@ variable "cosmos_container_throughput" {
 }
 
 variable "azure_foundry_deployments" {
-  description = "Azure AI Foundry OpenAI model deployments. The app currently uses deployment name gpt-5-mini from src/clients/constants.ts."
+  description = "Azure AI Foundry OpenAI model deployment. The map key is the Azure deployment name used by the app."
   type = map(object({
     model_name    = string
     model_version = string
@@ -131,10 +131,9 @@ variable "azure_foundry_deployments" {
       capacity      = 1
     }
   }
-}
 
-variable "azure_foundry_deployment_name" {
-  description = "Azure AI Foundry deployment name the App Service should use."
-  type        = string
-  default     = "gpt-5-mini"
+  validation {
+    condition     = length(var.azure_foundry_deployments) == 1
+    error_message = "Configure exactly one Azure AI Foundry deployment; the map key is used as AZURE_FOUNDRY_DEPLOYMENT."
+  }
 }

@@ -32,14 +32,32 @@ import resources from "../books/index.js";
 
 export { MODEL_CHOICE };
 
-const GPT_5_MINI_URL =
+const DEFAULT_AZURE_OPENAI_API_VERSION = "2025-04-01-preview";
+const DEFAULT_AZURE_OPENAI_BASE_URL =
   "https://jupytutor.openai.azure.com/openai/responses?api-version=2025-04-01-preview";
 
+function buildAzureOpenAIBaseURL(): string {
+  if (process.env.AZURE_OPENAI_BASE_URL) {
+    return process.env.AZURE_OPENAI_BASE_URL;
+  }
+
+  const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
+  const apiVersion =
+    process.env.AZURE_OPENAI_API_VERSION ?? DEFAULT_AZURE_OPENAI_API_VERSION;
+
+  if (!endpoint) {
+    return DEFAULT_AZURE_OPENAI_BASE_URL;
+  }
+
+  return `${endpoint.replace(/\/$/, "")}/openai/responses?api-version=${apiVersion}`;
+}
+
 const client = new AzureOpenAI({
-  apiKey: process.env.AZURE_OPEN_AI_KEY,
-  baseURL: GPT_5_MINI_URL,
-  apiVersion: "2025-04-01-preview",
-  deployment: MODEL_CHOICE,
+  apiKey: process.env.AZURE_OPENAI_API_KEY ?? process.env.AZURE_OPEN_AI_KEY,
+  baseURL: buildAzureOpenAIBaseURL(),
+  apiVersion:
+    process.env.AZURE_OPENAI_API_VERSION ?? DEFAULT_AZURE_OPENAI_API_VERSION,
+  deployment: process.env.AZURE_OPENAI_DEPLOYMENT ?? MODEL_CHOICE,
 });
 
 type ImageMimeType =

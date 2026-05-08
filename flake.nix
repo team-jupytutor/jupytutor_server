@@ -14,8 +14,10 @@
       {
         devShells.default = pkgs.mkShell {
           packages = [
+            pkgs.azure-cli
             pkgs.nodejs_20
-            pkgs.yarn
+            pkgs.unzip
+            pkgs.zip
             pkgs.screen
             pkgs.ncurses
           ];
@@ -24,7 +26,7 @@
             export TERMINFO_DIRS="${pkgs.ncurses}/share/terminfo''${TERMINFO_DIRS:+:$TERMINFO_DIRS}"
             export DEV_LOG_FULL_PROMPT=1
             export DEV_LOG_FULL_PROMPT_FILE="/tmp/jupytutor_server_full_prompt.log"
-            echo "Run: yarn install"
+            echo "Run: npm install"
             echo "Full prompt logs -> $DEV_LOG_FULL_PROMPT_FILE"
           '';
         };

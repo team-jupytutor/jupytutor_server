@@ -2,6 +2,9 @@
 lib/
 node_modules/
 *.log
+app-service-package.zip
+.direnv/
+.envrc.local
 .eslintcache
 .stylelintcache
 *.egg-info/

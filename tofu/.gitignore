@@ -1,0 +1,30 @@
+# OpenTofu / Terraform working directories
+.terraform/
+
+# State files can contain secrets and provider metadata
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+
+# Plans often include sensitive computed values
+*.tfplan
+*.plan
+plan.out
+
+# Local variable files
+*.tfvars
+*.tfvars.json
+!terraform.tfvars.example
+
+# Local overrides
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# CLI config and credentials
+*.rc
+*.pem
+*.key
+*.pfx

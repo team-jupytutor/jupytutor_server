@@ -1,0 +1,36 @@
+project_name        = "iac-jupytutor"
+resource_group_name = "jupytutor"
+name_suffix         = "dev"
+
+# The existing jupytutor resource group is eastus. Workload resources can still be westus.
+resource_group_location = "eastus"
+location                = "westus"
+
+# Use a real secret with at least 32 characters. Do not commit terraform.tfvars.
+hmac_key = "replace-with-at-least-32-characters"
+
+app_service_sku_name = "B1"
+node_version         = "22-lts"
+startup_command     = "npm start"
+
+cosmos_database_name       = "jupytutor"
+cosmos_container_name      = "Container1"
+cosmos_partition_key_path  = "/student_id"
+cosmos_serverless          = true
+cosmos_container_throughput = null
+
+azure_openai_deployments = {
+  gpt-5-mini = {
+    model_name    = "gpt-5-mini"
+    model_version = "2025-08-07"
+    sku_name      = "GlobalStandard"
+    capacity      = 1
+  }
+}
+
+azure_openai_deployment_name = "gpt-5-mini"
+
+extra_app_settings = {
+  # Keep deployment-specific overrides here, for example:
+  # AZURE_OPENAI_API_VERSION = "2025-04-01-preview"
+}

@@ -395,7 +395,7 @@ export async function promptTutor(
       return IMAGE_EXTENSIONS.has(ext) || detectImageMime(f.buffer) !== null;
     }) ?? hasImagesInMessages(messages);
 
-  const model = "gpt-5-mini";
+  const model = process.env.AZURE_OPENAI_DEPLOYMENT ?? MODEL_CHOICE;
   const instructions =
     cellType === "grader"
       ? graderInstructions
@@ -503,7 +503,7 @@ export async function promptTutorV2(
 
   try {
     const response = await client.responses.create({
-      model: "gpt-5-mini",
+      model: process.env.AZURE_OPENAI_DEPLOYMENT ?? MODEL_CHOICE,
       input: modelMessages.map(cleanMessageForAPI) as never,
       stream,
     });

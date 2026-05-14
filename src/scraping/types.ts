@@ -49,6 +49,9 @@ export type ScrapeVersion = {
   source: "auto" | "manual";
   text: string;
   rawText?: string;
+  sourceUrl?: string;
+  contentType?: string;
+  extractionMode?: string;
   previousToken?: string;
   createdAt: number;
   infiniteTtl?: boolean;

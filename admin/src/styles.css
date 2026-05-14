@@ -516,6 +516,16 @@ p {
   gap: 10px;
 }
 
+.editor-header > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.editor-header p {
+  color: #677380;
+  font-size: 12px;
+}
+
 .editor-actions {
   display: flex;
   align-items: center;
@@ -523,8 +533,126 @@ p {
 }
 
 .editor-header h3,
-.version-list h3 {
+.version-list h3,
+.current-content h3 {
   font-size: 14px;
+}
+
+.section-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+}
+
+.section-heading p {
+  overflow-wrap: anywhere;
+  color: #677380;
+  font-size: 12px;
+}
+
+.section-heading span {
+  border-radius: 999px;
+  padding: 3px 8px;
+  color: #3f4b58;
+  background: #eef1f4;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.current-content {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #d7dde4;
+  border-radius: 8px;
+  padding: 10px;
+  background: #ffffff;
+}
+
+.current-content iframe {
+  width: 100%;
+  min-height: 360px;
+  border: 1px solid #d7dde4;
+  border-radius: 7px;
+  background: #ffffff;
+}
+
+.content-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.content-tabs button {
+  min-height: 30px;
+  border-color: transparent;
+  background: #f7f8fa;
+}
+
+.content-tabs button.selected {
+  border-color: #8ca4bc;
+  background: #eef1f4;
+}
+
+.current-content pre,
+.notebook-cell pre,
+.markdown-renderer pre {
+  max-height: 360px;
+  overflow: auto;
+  margin: 0;
+  border-radius: 6px;
+  padding: 9px;
+  color: #26323f;
+  background: #eef1f4;
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: pre-wrap;
+}
+
+.markdown-renderer {
+  display: grid;
+  gap: 8px;
+}
+
+.markdown-renderer h1,
+.markdown-renderer h2,
+.markdown-renderer h3 {
+  margin: 0;
+  color: #243140;
+}
+
+.markdown-renderer h1 {
+  font-size: 18px;
+}
+
+.markdown-renderer h2 {
+  font-size: 16px;
+}
+
+.markdown-renderer h3 {
+  font-size: 14px;
+}
+
+.markdown-renderer p {
+  color: #3f4b58;
+  white-space: pre-wrap;
+}
+
+.notebook-renderer {
+  display: grid;
+  gap: 10px;
+}
+
+.notebook-cell {
+  display: grid;
+  gap: 7px;
+  border: 1px solid #d7dde4;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.notebook-cell > strong {
+  color: #677380;
+  font-size: 12px;
+  text-transform: uppercase;
 }
 
 .version-list {

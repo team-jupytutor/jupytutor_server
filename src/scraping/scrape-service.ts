@@ -252,6 +252,7 @@ async function scrape(
     });
 
     const token = buildToken(domain, url, result.text);
+    const now = Date.now();
     const version: ScrapeVersion = {
       id: versionId(token),
       type: "scrape_version",
@@ -261,7 +262,10 @@ async function scrape(
       source: "auto",
       text: result.text,
       rawText: result.rawText,
-      createdAt: Date.now(),
+      sourceUrl: result.sourceUrl,
+      contentType: result.contentType,
+      extractionMode: result.extractionMode,
+      createdAt: now,
     };
     log("state.version", "Storing scrape content version.", {
       token,
@@ -278,11 +282,12 @@ async function scrape(
       url,
       status: "ready",
       token,
+      error: undefined,
       requestedAt: startedAt,
-      lastFetchedAt: Date.now(),
-      ttlExpiresAt: Date.now() + DEFAULT_TTL_MS,
+      lastFetchedAt: now,
+      ttlExpiresAt: now + DEFAULT_TTL_MS,
       scrapeStartedAt: startedAt,
-      scrapeUpdatedAt: Date.now(),
+      scrapeUpdatedAt: now,
       log: log.entries,
     });
   } catch (error) {

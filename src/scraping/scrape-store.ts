@@ -122,8 +122,9 @@ export class ScrapeStore {
     const { resources } = await this.container.items
       .query<ScrapeDocument>({
         query:
-          "SELECT * FROM c WHERE c.domain = @domain AND c.url = @url ORDER BY c.createdAt DESC",
+          "SELECT * FROM c WHERE c.type = @type AND c.domain = @domain AND c.url = @url ORDER BY c.createdAt DESC",
         parameters: [
+          { name: "@type", value: "scrape_version" },
           { name: "@domain", value: domain },
           { name: "@url", value: url },
         ],

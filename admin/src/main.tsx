@@ -1,5 +1,8 @@
 import React, { FormEvent, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import type { Ipynb } from "@jupyter-kit/react";
 import {
   CheckCircle2,
   Circle,
@@ -37,9 +40,11 @@ type ScrapeState = {
   status: "ready" | "pending" | "failed" | "blocked";
   token?: string;
   error?: string;
-  lastScrapedAt?: string;
-  updatedAt: string;
-  expiresAt?: string;
+  requestedAt: number;
+  lastFetchedAt?: number;
+  ttlExpiresAt?: number;
+  scrapeStartedAt?: number;
+  scrapeUpdatedAt?: number;
   manuallyEdited?: boolean;
   log?: ScrapeLogEntry[];
 };
@@ -58,7 +63,11 @@ type ScrapeVersion = {
   domain: string;
   token: string;
   text: string;
-  source: "scrape" | "manual";
+  rawText?: string;
+  source: "auto" | "manual";
+  sourceUrl?: string;
+  contentType?: string;
+  extractionMode?: string;
   createdAt: string;
   expiresAt?: string;
 };
@@ -71,6 +80,32 @@ const statusIcon = {
   failed: XCircle,
   blocked: Shield,
 };
+
+const LazyNotebook = React.lazy(async () => {
+  const [{ Notebook }, { python }] = await Promise.all([
+    import("@jupyter-kit/react"),
+    import("@jupyter-kit/core/langs/python"),
+  ]);
+
+  return {
+    default: function LazyNotebookRenderer({
+      filename,
+      ipynb,
+    }: {
+      filename: string;
+      ipynb: Ipynb;
+    }) {
+      return (
+        <Notebook
+          ipynb={ipynb}
+          language="python"
+          languages={[python]}
+          filename={filename}
+        />
+      );
+    },
+  };
+});
 
 function App() {
   const [session, setSession] = useState<SessionState>("checking");
@@ -125,6 +160,27 @@ function App() {
     () => scrapes.find((scrape) => scrape.url === selectedUrl),
     [scrapes, selectedUrl],
   );
+  const validVersions = useMemo(
+    () =>
+      versions.filter(
+        (version) =>
+          version.type === "scrape_version" &&
+          typeof version.text === "string" &&
+          typeof version.createdAt !== "undefined",
+      ),
+    [versions],
+  );
+  const currentVersion = useMemo(() => {
+    if (!selectedScrape?.token) return validVersions[0];
+    return (
+      validVersions.find((version) => version.token === selectedScrape.token) ??
+      validVersions[0]
+    );
+  }, [selectedScrape?.token, validVersions]);
+
+  useEffect(() => {
+    setManualText(currentVersion?.text ?? "");
+  }, [selectedUrl, currentVersion?.token]);
 
   async function refreshAll() {
     setLoading(true);
@@ -245,6 +301,7 @@ function App() {
 
   async function retrySelectedScrape() {
     if (!selectedUrl) return;
+    const url = selectedUrl;
     setLoading(true);
     setNotice(null);
     try {
@@ -257,11 +314,32 @@ function App() {
         },
       );
       await refreshAll();
+      await loadDetail(url);
+      void pollScrapeUntilSettled(url);
       setNotice({ tone: "info", text: `Retry ${scrape.status}.` });
     } catch (error) {
       showError(error);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function pollScrapeUntilSettled(url: string) {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await delay(Math.min(1000 + attempt * 500, 4000));
+      try {
+        const response = await fetchJson<{ scrapes: ScrapeState[] }>(
+          "/admin/api/scrapes",
+        );
+        setScrapes(response.scrapes);
+        const scrape = response.scrapes.find((item) => item.url === url);
+        if (!scrape || scrape.status === "pending") continue;
+        await loadDetail(url);
+        return;
+      } catch (error) {
+        showError(error);
+        return;
+      }
     }
   }
 
@@ -272,9 +350,13 @@ function App() {
       const response = await fetchJson<{ documents: ScrapeVersion[] }>(
         `/admin/api/scrapes/detail?url=${encodeURIComponent(url)}`,
       );
-      const docs = response.documents;
+      const docs = response.documents.filter(
+        (doc) =>
+          doc.type === "scrape_version" &&
+          typeof doc.text === "string" &&
+          typeof doc.createdAt !== "undefined",
+      );
       setVersions(docs);
-      setManualText(docs.find((doc) => doc.type === "scrape_version")?.text ?? "");
     } catch (error) {
       showError(error);
     } finally {
@@ -459,7 +541,8 @@ function App() {
             loading={loading}
             manualText={manualText}
             selectedScrape={selectedScrape}
-            versions={versions}
+            currentVersion={currentVersion}
+            versions={validVersions}
             onManualTextChange={setManualText}
             onRetry={retrySelectedScrape}
             onSaveManualText={saveManualText}
@@ -528,6 +611,7 @@ function ScrapeDetail({
   loading,
   manualText,
   selectedScrape,
+  currentVersion,
   versions,
   onManualTextChange,
   onRetry,
@@ -536,6 +620,7 @@ function ScrapeDetail({
   loading: boolean;
   manualText: string;
   selectedScrape?: ScrapeState;
+  currentVersion?: ScrapeVersion;
   versions: ScrapeVersion[];
   onManualTextChange: (text: string) => void;
   onRetry: () => void;
@@ -560,12 +645,10 @@ function ScrapeDetail({
           <span className={`status-chip ${selectedScrape.status}`}>
             {selectedScrape.status}
           </span>
-          {selectedScrape.status === "failed" ? (
-            <button type="button" onClick={onRetry} disabled={loading}>
-              <RefreshCw size={16} aria-hidden="true" />
-              Retry
-            </button>
-          ) : null}
+          <button type="button" onClick={onRetry} disabled={loading}>
+            <RefreshCw size={16} aria-hidden="true" />
+            {selectedScrape.status === "failed" ? "Retry" : "Rescrape"}
+          </button>
         </div>
       </div>
 
@@ -579,13 +662,17 @@ function ScrapeDetail({
       <dl className="metadata">
         <div>
           <dt>Updated</dt>
-          <dd>{formatDate(selectedScrape.updatedAt)}</dd>
+          <dd>
+            {selectedScrape.scrapeUpdatedAt
+              ? formatDate(selectedScrape.scrapeUpdatedAt)
+              : "Unknown"}
+          </dd>
         </div>
         <div>
           <dt>Expires</dt>
           <dd>
-            {selectedScrape.expiresAt
-              ? formatDate(selectedScrape.expiresAt)
+            {selectedScrape.ttlExpiresAt
+              ? formatDate(selectedScrape.ttlExpiresAt)
               : "Never"}
           </dd>
         </div>
@@ -620,9 +707,17 @@ function ScrapeDetail({
         )}
       </details>
 
+      {currentVersion ? <CurrentContent version={currentVersion} /> : null}
+
       <form className="manual-editor" onSubmit={onSaveManualText}>
         <div className="editor-header">
-          <h3>Replacement Text</h3>
+          <div>
+            <h3>Replacement Text</h3>
+            <p>
+              Starts from the current content above. Saving creates a manual
+              version with infinite TTL.
+            </p>
+          </div>
           <div className="editor-actions">
             <a
               className="button-link"
@@ -657,6 +752,7 @@ function ScrapeDetail({
               type="button"
               onClick={() => onManualTextChange(version.text)}
               title="View version text"
+              disabled={!version.text}
             >
               <Eye size={16} aria-hidden="true" />
             </button>
@@ -664,6 +760,86 @@ function ScrapeDetail({
         ))}
       </div>
     </section>
+  );
+}
+
+function CurrentContent({ version }: { version: ScrapeVersion }) {
+  const mode = inferContentMode(version);
+  const [view, setView] = useState<"rendered" | "raw">("rendered");
+  const rawOutput = version.rawText ?? version.text;
+
+  return (
+    <section className="current-content">
+      <div className="section-heading">
+        <div>
+          <h3>Current Content</h3>
+          <p>{formatProvenance(version)}</p>
+        </div>
+        <span>{mode}</span>
+      </div>
+      <div className="content-tabs" aria-label="Extracted content view">
+        <button
+          type="button"
+          className={view === "rendered" ? "selected" : ""}
+          onClick={() => setView("rendered")}
+        >
+          Rendered
+        </button>
+        <button
+          type="button"
+          className={view === "raw" ? "selected" : ""}
+          onClick={() => setView("raw")}
+        >
+          Raw
+        </button>
+      </div>
+      {view === "raw" ? (
+        <pre>{rawOutput}</pre>
+      ) : mode === "html" ? (
+        <iframe
+          title="Extracted HTML"
+          sandbox=""
+          srcDoc={rawOutput}
+        />
+      ) : mode === "ipynb" ? (
+        <NotebookRenderer
+          rawText={version.rawText}
+          fallbackText={version.text}
+          filename={version.sourceUrl ?? version.url}
+        />
+      ) : mode === "markdown" ? (
+        <MarkdownRenderer text={rawOutput} />
+      ) : (
+        <pre>{version.text}</pre>
+      )}
+    </section>
+  );
+}
+
+function NotebookRenderer({
+  rawText,
+  fallbackText,
+  filename,
+}: {
+  rawText?: string;
+  fallbackText: string;
+  filename: string;
+}) {
+  const notebook = parseNotebook(rawText);
+  if (!notebook) return <pre>{fallbackText}</pre>;
+
+  return (
+    <React.Suspense fallback={<div className="empty-state">Loading notebook renderer.</div>}>
+      <LazyNotebook ipynb={notebook} filename={filename} />
+    </React.Suspense>
+  );
+}
+
+function MarkdownRenderer({ text }: { text: string }) {
+  return (
+    <div className="markdown-renderer">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+    </div>
   );
 }
 
@@ -686,6 +862,10 @@ async function fetchJson<T = unknown>(url: string, init?: RequestInit): Promise<
   return (await response.json()) as T;
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function formatDate(value: string | number) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -694,7 +874,61 @@ function formatDate(value: string | number) {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    second: "2-digit",
   }).format(date);
+}
+
+function inferContentMode(version: ScrapeVersion): string {
+  if (version.extractionMode?.includes("ipynb")) return "ipynb";
+  if (version.extractionMode?.includes("html")) return "html";
+  if (version.extractionMode?.includes("plain")) return inferPlainMode(version);
+  if (version.sourceUrl?.endsWith(".ipynb")) return "ipynb";
+  if (version.sourceUrl?.endsWith(".md")) return "markdown";
+  if (version.contentType?.includes("html")) return "html";
+  if (version.contentType?.includes("json") && looksLikeNotebook(version.rawText)) {
+    return "ipynb";
+  }
+  if (looksLikeHtml(version.rawText)) return "html";
+  if (looksLikeNotebook(version.rawText)) return "ipynb";
+  return inferPlainMode(version);
+}
+
+function formatProvenance(version: ScrapeVersion): string {
+  const origin =
+    version.source === "manual"
+      ? "Manual replacement"
+      : "Automatic scrape";
+  const source = version.sourceUrl ?? version.url;
+  return `${origin} from ${source}`;
+}
+
+function inferPlainMode(version: ScrapeVersion): string {
+  if (version.sourceUrl?.endsWith(".md")) return "markdown";
+  if ((version.rawText ?? version.text).includes("\n# ")) return "markdown";
+  return "text";
+}
+
+function looksLikeHtml(text?: string): boolean {
+  return Boolean(text?.trim().startsWith("<"));
+}
+
+function looksLikeNotebook(text?: string): boolean {
+  if (!text) return false;
+  try {
+    const parsed = JSON.parse(text) as { cells?: unknown };
+    return Array.isArray(parsed.cells);
+  } catch {
+    return false;
+  }
+}
+
+function parseNotebook(rawText?: string): Ipynb | null {
+  if (!rawText) return null;
+  try {
+    return JSON.parse(rawText) as Ipynb;
+  } catch {
+    return null;
+  }
 }
 
 if ("serviceWorker" in navigator) {

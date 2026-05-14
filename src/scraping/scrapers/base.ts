@@ -1,6 +1,9 @@
 export type ScrapeResult = {
   text: string;
   rawText?: string;
+  sourceUrl?: string;
+  contentType?: string;
+  extractionMode?: string;
 };
 
 export type ScrapeLogger = (

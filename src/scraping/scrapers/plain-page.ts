@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
 import type { PageScraper, ScrapeLogger, ScrapeResult } from "./base.js";
+import { fetchWithTimeout } from "../fetch.js";
 
 const USER_AGENT =
   "JupytutorScraper/1.0 (+https://github.com/kevyg03/jupytutor)";
@@ -13,7 +14,7 @@ export class PlainPageScraper implements PageScraper {
 
   async scrape(url: string, log?: ScrapeLogger): Promise<ScrapeResult> {
     log?.("scraper.fetch", "Fetching page URL.");
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       headers: {
         "User-Agent": USER_AGENT,
         Accept: "text/html,text/plain,application/xhtml+xml;q=0.9,*/*;q=0.8",
@@ -38,7 +39,13 @@ export class PlainPageScraper implements PageScraper {
         mode: "plain",
         textLength: text.length,
       });
-      return { text, rawText };
+      return {
+        text,
+        rawText,
+        sourceUrl: response.url || url,
+        contentType,
+        extractionMode: "plain",
+      };
     }
 
     const $ = cheerio.load(rawText);
@@ -56,7 +63,13 @@ export class PlainPageScraper implements PageScraper {
       textLength: text.length,
     });
 
-    return { text, rawText };
+    return {
+      text,
+      rawText,
+      sourceUrl: response.url || url,
+      contentType,
+      extractionMode: "html",
+    };
   }
 }
 

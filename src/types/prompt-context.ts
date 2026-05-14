@@ -26,6 +26,14 @@ export const multimodalContentChunkSchema = z.union([
 
 export const multimodalContentSchema = z.array(multimodalContentChunkSchema);
 
+const scrapeRefSchema = z.object({
+  type: z.literal("scrape_ref"),
+  url: z.string().url(),
+  status: z.enum(["ready", "pending", "blocked", "failed"]),
+  token: z.string().optional(),
+  message: z.string().optional(),
+});
+
 const promptContextCellBaseSchema = z.object({
   currentContent: multimodalContentSchema,
   instructorNote: z.string().optional(),
@@ -83,7 +91,7 @@ export const promptContextSchema = z.object({
     .object({
       _description: z.string(),
     })
-    .catchall(z.string()),
+    .catchall(scrapeRefSchema),
   notebook: z.object({
     overview: z.string(),
     filteredCells: z.object({
@@ -109,6 +117,7 @@ export type MultimodalContentChunk = z.infer<
   typeof multimodalContentChunkSchema
 >;
 export type MultimodalContent = z.infer<typeof multimodalContentSchema>;
+export type ScrapeRef = z.infer<typeof scrapeRefSchema>;
 export type PromptContextCell = z.infer<typeof promptContextCellSchema>;
 export type PromptContext = z.infer<typeof promptContextSchema>;
 export type InteractionV2Request = z.infer<typeof interactionV2RequestSchema>;

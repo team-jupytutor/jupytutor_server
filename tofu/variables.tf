@@ -91,6 +91,18 @@ variable "cosmos_partition_key_path" {
   default     = "/student_id"
 }
 
+variable "cosmos_scrapes_container_name" {
+  description = "Cosmos DB SQL container name used for scrape domain rules, URL state, and content versions."
+  type        = string
+  default     = "Scrapes"
+}
+
+variable "cosmos_scrapes_partition_key_path" {
+  description = "Partition key path for the scrape container."
+  type        = string
+  default     = "/domain"
+}
+
 variable "cosmos_serverless" {
   description = "Use Cosmos DB serverless capacity mode."
   type        = bool

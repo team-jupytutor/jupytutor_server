@@ -194,7 +194,12 @@ function renderResourcesMarkdown(
     return "[none]";
   }
 
-  return entries.map(([, value]) => value).join("\n\n");
+  return entries
+    .map(([url, value]) => {
+      if (typeof value === "string") return value;
+      return `[${value.status}] ${url}`;
+    })
+    .join("\n\n");
 }
 
 function renderFilteredCellsChunks(

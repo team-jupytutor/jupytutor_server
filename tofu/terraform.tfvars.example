@@ -13,6 +13,8 @@ startup_command     = "npm start"
 cosmos_database_name       = "jupytutor"
 cosmos_container_name      = "Container1"
 cosmos_partition_key_path  = "/student_id"
+cosmos_scrapes_container_name = "Scrapes"
+cosmos_scrapes_partition_key_path = "/domain"
 cosmos_serverless          = true
 cosmos_container_throughput = null
 

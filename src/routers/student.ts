@@ -23,20 +23,6 @@ interface InteractionRequestBody {
   courseId?: string;
   assignmentId?: string;
   cellType?: string;
-  sourceURLs?: string[] | string;
-}
-
-function parseSourceURLs(raw: unknown): string[] {
-  if (Array.isArray(raw)) return raw;
-  if (typeof raw === "string") {
-    try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
-    } catch {
-      /* not valid JSON, ignore */
-    }
-  }
-  return [];
 }
 
 /** POST /interaction/stream — main tutoring endpoint (streaming & non-streaming). */
@@ -87,7 +73,6 @@ studentRouter.post(
         req.body.cellType,
         res,
         enableStreaming,
-        parseSourceURLs(req.body.sourceURLs),
       );
 
       const username = req.body.userId !== "" ? req.body.userId : undefined;

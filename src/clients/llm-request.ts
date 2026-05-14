@@ -5,8 +5,7 @@
  * streaming / non-streaming responses, and chat-history management.
  */
 
-import dotenv from "dotenv";
-dotenv.config();
+import "dotenv/config";
 
 import OpenAI from "openai";
 import fs from "fs";
@@ -28,7 +27,7 @@ import {
   multimodalContentToDisplayText,
   normalizeMultimodalContent,
 } from "../builders/prompt-v2.js";
-import resources from "../books/index.js";
+import { resolveTokenText } from "../scraping/scrape-service.js";
 
 export { getFoundryDeployment };
 
@@ -337,7 +336,6 @@ export async function promptTutor(
   cellType: string,
   res: Response | null = null,
   stream = false,
-  sourceURLs: string[] = [],
 ): Promise<TutorResponse> {
   const messages: ChatMessage[] = [];
 
@@ -401,23 +399,11 @@ export async function promptTutor(
         : successInstructions;
 
   // ─── Textbook context (prepended to API input, never returned) ───
-  const rawContext =
-    sourceURLs.length > 0 ? resources.getFromURLs(sourceURLs) : "";
+  const rawContext = "";
   const textbookContextProvided = rawContext.length > 0;
   const context = textbookContextProvided
     ? rawContext
     : "<no_source_materials>";
-
-  // >>>>>>>>>> TEMP LOG — delete after verifying textbook context flow <<<<<<<<<<
-  // console.log("\n========== [TEXTBOOK_CONTEXT] ==========");
-  // console.log("[TEXTBOOK_CONTEXT] sourceURLs:", sourceURLs);
-  // console.log(
-  //   "[TEXTBOOK_CONTEXT] retrieved context (%d chars):\n%s",
-  //   context.length,
-  //   context.substring(0, 500) + (context.length > 500 ? "\n  ... (truncated)" : ""),
-  // );
-  // console.log("========== [/TEXTBOOK_CONTEXT] ==========\n");
-  // >>>>>>>>>> END TEMP LOG <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
   const textbookContext: ChatMessage[] = [
     {
@@ -462,19 +448,14 @@ export async function promptTutorV2(
   res: Response | null = null,
   stream = false,
 ): Promise<TutorResponse> {
-  const sourceLinks = Object.keys(promptContext.resources ?? {}).filter(
-    (key) => !key.startsWith("_"),
-  );
-  for (const link of sourceLinks) {
-    const resolved = resources.get(link);
-    if (resolved !== undefined) {
-      promptContext.resources[link] = resolved;
-    }
-  }
+  const promptContextWithResolvedResources =
+    await resolvePromptContextScrapeRefs(promptContext);
 
   const contextMessage: ChatMessage = {
     role: "user",
-    content: buildPromptContextAsMultimodalContent(promptContext),
+    content: buildPromptContextAsMultimodalContent(
+      promptContextWithResolvedResources,
+    ),
     noShow: true,
   };
   const normalizedNewMessage = normalizeMultimodalContent(newMessage);
@@ -486,7 +467,9 @@ export async function promptTutorV2(
         : [{ type: "input_text", text: "[No user message provided]" }],
   };
   const modelMessages = [contextMessage, studentMessage];
-  const textbookContextProvided = promptContextHasResources(promptContext);
+  const textbookContextProvided = promptContextHasResources(
+    promptContextWithResolvedResources,
+  );
   const studentDisplayContent = Array.isArray(studentMessage.content)
     ? studentMessage.content
     : [];
@@ -601,6 +584,34 @@ export async function promptTutorV2(
 
     throw err;
   }
+}
+
+async function resolvePromptContextScrapeRefs(
+  promptContext: PromptContext,
+): Promise<PromptContext> {
+  const resolvedResources: Record<string, unknown> = {
+    _description: promptContext.resources._description,
+  };
+
+  await Promise.all(
+    Object.entries(promptContext.resources ?? {}).map(async ([url, value]) => {
+      if (url === "_description") return;
+      if (
+        typeof value === "object" &&
+        value !== null &&
+        value.status === "ready" &&
+        value.token
+      ) {
+        const text = await resolveTokenText(value.token);
+        if (text) resolvedResources[url] = text;
+      }
+    }),
+  );
+
+  return {
+    ...promptContext,
+    resources: resolvedResources as PromptContext["resources"],
+  };
 }
 
 // ─── Streaming response handler ─────────────────────────────────────

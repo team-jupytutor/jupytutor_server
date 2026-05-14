@@ -1,3 +1,5 @@
+import "dotenv/config";
+
 /**
  * Azure Cosmos DB client for persisting student–tutor interactions.
  *

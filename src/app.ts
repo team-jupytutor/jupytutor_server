@@ -6,13 +6,11 @@
  * multipart file uploads via multer, and delegates to the student router.
  */
 
+import "dotenv/config";
 import express from "express";
 import type { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import multer from "multer";
-import dotenv from "dotenv";
-
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -67,16 +65,33 @@ const allowedOrigins = [
   "https://datahub.berkeley.edu",
 ];
 
+const extraAllowedOrigins = (process.env.ALLOWED_ORIGINS ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+function isAllowedOrigin(origin: string): boolean {
+  if (allowedOrigins.includes(origin) || extraAllowedOrigins.includes(origin)) {
+    return true;
+  }
+
+  try {
+    const { hostname } = new URL(origin);
+    return (
+      hostname === process.env.WEBSITE_HOSTNAME ||
+      hostname.endsWith(".datahub.berkeley.edu")
+    );
+  } catch {
+    return false;
+  }
+}
+
 app.use(
   cors({
     origin(origin, callback) {
       if (!origin) return callback(null, true);
 
-      const isAllowed =
-        allowedOrigins.includes(origin) ||
-        origin.endsWith(".datahub.berkeley.edu");
-
-      return isAllowed
+      return isAllowedOrigin(origin)
         ? callback(null, true)
         : callback(new Error("Not allowed by CORS, with origin: " + origin));
     },
@@ -145,7 +160,11 @@ app.use(
 // ─── Routes ──────────────────────────────────────────────────────────
 
 import studentRouter from "./routers/student.js";
+import scrapesRouter from "./routers/scrapes.js";
+import adminRouter from "./routers/admin.js";
 
+app.use(adminRouter);
+app.use(scrapesRouter);
 app.use(studentRouter);
 
 // ─── Start ───────────────────────────────────────────────────────────

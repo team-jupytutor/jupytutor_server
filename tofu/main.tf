@@ -30,6 +30,16 @@ resource "random_password" "hmac_key" {
   special = false
 }
 
+resource "random_password" "admin_password" {
+  length  = 24
+  special = false
+}
+
+resource "random_password" "admin_session_secret" {
+  length  = 64
+  special = false
+}
+
 resource "random_id" "app_service" {
   byte_length = 3
 }
@@ -61,20 +71,25 @@ resource "azurerm_linux_web_app" "main" {
   }
 
   app_settings = merge(
+    # If you add or rename runtime settings here, update
+    # scripts/write-local-env-from-tofu.sh so local development stays in sync.
     {
-      NODE_ENV                       = "production"
-      NPM_CONFIG_PRODUCTION          = "false"
-      POST_BUILD_COMMAND             = "npm run build"
-      SCM_DO_BUILD_DURING_DEPLOYMENT = "true"
-      COSMOS_DB_ENDPOINT             = azurerm_cosmosdb_account.main.endpoint
-      COSMOS_DB_MASTER_KEY           = azurerm_cosmosdb_account.main.primary_key
-      COSMOS_DB_DATABASE_NAME        = azurerm_cosmosdb_sql_database.main.name
-      COSMOS_DB_CONTAINER_NAME       = azurerm_cosmosdb_sql_container.interactions.name
-      AZURE_FOUNDRY_API_KEY          = azurerm_cognitive_account.foundry.primary_access_key
-      AZURE_FOUNDRY_ENDPOINT         = azurerm_cognitive_account.foundry.endpoint
-      AZURE_FOUNDRY_BASE_URL         = "${azurerm_cognitive_account.foundry.endpoint}openai/v1/"
-      AZURE_FOUNDRY_DEPLOYMENT       = one(keys(var.azure_foundry_deployments))
-      HMAC_KEY                       = random_password.hmac_key.result
+      NODE_ENV                         = "production"
+      NPM_CONFIG_PRODUCTION            = "false"
+      POST_BUILD_COMMAND               = "npm run build"
+      SCM_DO_BUILD_DURING_DEPLOYMENT   = "true"
+      COSMOS_DB_ENDPOINT               = azurerm_cosmosdb_account.main.endpoint
+      COSMOS_DB_MASTER_KEY             = azurerm_cosmosdb_account.main.primary_key
+      COSMOS_DB_DATABASE_NAME          = azurerm_cosmosdb_sql_database.main.name
+      COSMOS_DB_CONTAINER_NAME         = azurerm_cosmosdb_sql_container.interactions.name
+      COSMOS_DB_SCRAPES_CONTAINER_NAME = azurerm_cosmosdb_sql_container.scrapes.name
+      AZURE_FOUNDRY_API_KEY            = azurerm_cognitive_account.foundry.primary_access_key
+      AZURE_FOUNDRY_ENDPOINT           = azurerm_cognitive_account.foundry.endpoint
+      AZURE_FOUNDRY_BASE_URL           = "${azurerm_cognitive_account.foundry.endpoint}openai/v1/"
+      AZURE_FOUNDRY_DEPLOYMENT         = one(keys(var.azure_foundry_deployments))
+      HMAC_KEY                         = random_password.hmac_key.result
+      ADMIN_PASSWORD                   = random_password.admin_password.result
+      ADMIN_SESSION_SECRET             = random_password.admin_session_secret.result
     },
     var.extra_app_settings,
   )
@@ -128,6 +143,80 @@ resource "azurerm_cosmosdb_sql_container" "interactions" {
   partition_key_paths   = [var.cosmos_partition_key_path]
   partition_key_version = 2
   throughput            = var.cosmos_serverless ? null : var.cosmos_container_throughput
+}
+
+resource "azurerm_cosmosdb_sql_container" "scrapes" {
+  name                  = var.cosmos_scrapes_container_name
+  resource_group_name   = azurerm_resource_group.main.name
+  account_name          = azurerm_cosmosdb_account.main.name
+  database_name         = azurerm_cosmosdb_sql_database.main.name
+  partition_key_paths   = [var.cosmos_scrapes_partition_key_path]
+  partition_key_version = 2
+  throughput            = var.cosmos_serverless ? null : var.cosmos_container_throughput
+
+  indexing_policy {
+    indexing_mode = "consistent"
+
+    included_path {
+      path = "/*"
+    }
+
+    excluded_path {
+      path = "/\"_etag\"/?"
+    }
+
+    composite_index {
+      index {
+        path  = "/type"
+        order = "Ascending"
+      }
+      index {
+        path  = "/domain"
+        order = "Ascending"
+      }
+    }
+
+    composite_index {
+      index {
+        path  = "/type"
+        order = "Ascending"
+      }
+      index {
+        path  = "/domain"
+        order = "Ascending"
+      }
+      index {
+        path  = "/url"
+        order = "Ascending"
+      }
+    }
+
+    composite_index {
+      index {
+        path  = "/domain"
+        order = "Ascending"
+      }
+      index {
+        path  = "/url"
+        order = "Ascending"
+      }
+    }
+
+    composite_index {
+      index {
+        path  = "/domain"
+        order = "Ascending"
+      }
+      index {
+        path  = "/url"
+        order = "Ascending"
+      }
+      index {
+        path  = "/createdAt"
+        order = "Descending"
+      }
+    }
+  }
 }
 
 resource "azurerm_cognitive_account" "foundry" {

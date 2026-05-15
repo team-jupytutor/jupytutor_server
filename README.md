@@ -63,6 +63,15 @@ npm run build:admin
 
 Admin UI is served by the server at `/admin`.
 
+## Scraping Whitelists
+
+There are two whitelist layers:
+
+- Client config: `remoteContextGathering.whitelist` in the JupyterLab extension decides which notebook links the client will send to `POST /scrapes/resolve` in the first place. Configure this in the notebook/user/DataHub config alongside `api.baseURL`.
+- Server data: the admin UI's whitelist controls which domains the server is allowed to scrape. This is stored in Cosmos DB, not in the client config.
+
+The client whitelist is a request filter. The server whitelist is the enforcement layer.
+
 ## Deploy
 
 Preferred manual deploy:

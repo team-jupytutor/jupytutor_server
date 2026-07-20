@@ -2,8 +2,9 @@
  * Jupytutor API server.
  *
  * Express 5 application serving the tutoring endpoints consumed by the
- * Jupytutor Jupyter notebook extension. Handles CORS for DataHub origins,
- * multipart file uploads via multer, and delegates to the student router.
+ * Jupytutor Jupyter notebook extension. Handles CORS for any JupyterHub
+ * origin (not tied to a specific institution's hub), multipart file uploads
+ * via multer, and delegates to the student router.
  */
 
 import express from "express";
@@ -59,27 +60,9 @@ const upload = multer({
 
 // ─── CORS ────────────────────────────────────────────────────────────
 
-const allowedOrigins = [
-  "http://localhost:8888",
-  "http://127.0.0.1:8888",
-  "http://localhost:8889",
-  "http://127.0.0.1:8889",
-  "https://datahub.berkeley.edu",
-];
-
 app.use(
   cors({
-    origin(origin, callback) {
-      if (!origin) return callback(null, true);
-
-      const isAllowed =
-        allowedOrigins.includes(origin) ||
-        origin.endsWith(".datahub.berkeley.edu");
-
-      return isAllowed
-        ? callback(null, true)
-        : callback(new Error("Not allowed by CORS, with origin: " + origin));
-    },
+    origin: true,
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: [

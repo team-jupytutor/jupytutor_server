@@ -2,8 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TOFU_DIR="$ROOT_DIR/tofu"
+TOFU_DIR="${TOFU_DIR:-$ROOT_DIR/tofu}"
 ENV_PATH="${ENV_PATH:-$ROOT_DIR/.env}"
+PORT_VALUE="${PORT:-3000}"
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -12,16 +13,173 @@ require_command() {
   fi
 }
 
-tofu_output() {
-  (cd "$TOFU_DIR" && tofu output -raw "$1")
-}
-
 require_command tofu
+require_command node
 
 if [ ! -d "$TOFU_DIR" ]; then
   echo "Missing tofu directory: $TOFU_DIR" >&2
   exit 1
 fi
+
+show_json_path="$(mktemp)"
+tmp_path="$(mktemp)"
+cleanup() {
+  rm -f "$show_json_path" "$tmp_path"
+}
+trap cleanup EXIT
+
+if ! (cd "$TOFU_DIR" && tofu show -json >"$show_json_path"); then
+  exit 1
+fi
+
+umask 077
+node - "$show_json_path" "$tmp_path" "$PORT_VALUE" <<'NODE'
+const fs = require("fs");
+
+const [, , showJsonPath, envPath, port] = process.argv;
+const state = JSON.parse(fs.readFileSync(showJsonPath, "utf8"));
+
+function allResources(module) {
+  if (!module) return [];
+  const resources = module.resources ?? [];
+  const childResources = (module.child_modules ?? []).flatMap(allResources);
+  return [...resources, ...childResources];
+}
+
+const rootModule = state.values?.root_module;
+const outputs = state.values?.outputs ?? {};
+const resources = allResources(rootModule);
+
+function resource(type, name) {
+  return resources.find((candidate) => {
+    return candidate.type === type && (!name || candidate.name === name);
+  })?.values;
+}
+
+function output(name) {
+  return outputs[name]?.value;
+}
+
+const webAppSettings = resource("azurerm_linux_web_app", "main")?.app_settings ?? {};
+const cosmosAccount = resource("azurerm_cosmosdb_account", "main") ?? {};
+const cosmosDatabase = resource("azurerm_cosmosdb_sql_database", "main") ?? {};
+const interactionsContainer =
+  resource("azurerm_cosmosdb_sql_container", "interactions") ?? {};
+const scrapesContainer =
+  resource("azurerm_cosmosdb_sql_container", "scrapes") ?? {};
+const foundryAccount = resource("azurerm_cognitive_account", "foundry") ?? {};
+const foundryDeployment =
+  resource("azurerm_cognitive_deployment", "foundry") ??
+  resources.find((candidate) => candidate.type === "azurerm_cognitive_deployment")
+    ?.values ??
+  {};
+
+function setting(name, fallback) {
+  const value = webAppSettings[name] ?? fallback;
+  if (value === undefined || value === null || value === "") {
+    throw new Error(`Could not find ${name} in tofu show -json output.`);
+  }
+  return String(value);
+}
+
+function optionalSetting(name, fallback) {
+  const value = webAppSettings[name] ?? fallback;
+  return value === undefined || value === null ? undefined : String(value);
+}
+
+const foundryEndpoint = setting(
+  "AZURE_FOUNDRY_ENDPOINT",
+  output("azure_foundry_endpoint") ?? foundryAccount.endpoint,
+);
+
+const env = {
+  NODE_ENV: "development",
+  PORT: port,
+  ALLOWED_ORIGINS:
+    process.env.ALLOWED_ORIGINS ??
+    `http://localhost:${port},http://127.0.0.1:${port}`,
+
+  COSMOS_DB_ENDPOINT: setting(
+    "COSMOS_DB_ENDPOINT",
+    output("cosmos_endpoint") ?? cosmosAccount.endpoint,
+  ),
+  COSMOS_DB_MASTER_KEY: setting(
+    "COSMOS_DB_MASTER_KEY",
+    output("cosmos_master_key") ?? cosmosAccount.primary_key,
+  ),
+  COSMOS_DB_DATABASE_NAME: setting(
+    "COSMOS_DB_DATABASE_NAME",
+    output("cosmos_database_name") ?? cosmosDatabase.name,
+  ),
+  COSMOS_DB_CONTAINER_NAME: setting(
+    "COSMOS_DB_CONTAINER_NAME",
+    output("cosmos_container_name") ?? interactionsContainer.name,
+  ),
+  COSMOS_DB_SCRAPES_CONTAINER_NAME: setting(
+    "COSMOS_DB_SCRAPES_CONTAINER_NAME",
+    output("cosmos_scrapes_container_name") ?? scrapesContainer.name,
+  ),
+
+  AZURE_FOUNDRY_API_KEY: setting(
+    "AZURE_FOUNDRY_API_KEY",
+    output("azure_foundry_api_key") ?? foundryAccount.primary_access_key,
+  ),
+  AZURE_FOUNDRY_ENDPOINT: foundryEndpoint,
+  AZURE_FOUNDRY_BASE_URL: setting(
+    "AZURE_FOUNDRY_BASE_URL",
+    output("azure_foundry_base_url") ?? `${foundryEndpoint}openai/v1/`,
+  ),
+  AZURE_FOUNDRY_DEPLOYMENT: setting(
+    "AZURE_FOUNDRY_DEPLOYMENT",
+    output("azure_foundry_deployment") ?? foundryDeployment.name,
+  ),
+
+  HMAC_KEY: setting("HMAC_KEY", output("hmac_key")),
+  ADMIN_PASSWORD: setting("ADMIN_PASSWORD", output("admin_password")),
+  ADMIN_SESSION_SECRET: setting(
+    "ADMIN_SESSION_SECRET",
+    output("admin_session_secret"),
+  ),
+  SCRAPE_CACHE_TTL_DAYS: optionalSetting("SCRAPE_CACHE_TTL_DAYS", "14"),
+};
+
+function dotenvLine([key, value]) {
+  return `${key}=${JSON.stringify(String(value))}`;
+}
+
+const sections = [
+  ["NODE_ENV", "PORT", "ALLOWED_ORIGINS"],
+  [
+    "COSMOS_DB_ENDPOINT",
+    "COSMOS_DB_MASTER_KEY",
+    "COSMOS_DB_DATABASE_NAME",
+    "COSMOS_DB_CONTAINER_NAME",
+    "COSMOS_DB_SCRAPES_CONTAINER_NAME",
+  ],
+  [
+    "AZURE_FOUNDRY_API_KEY",
+    "AZURE_FOUNDRY_ENDPOINT",
+    "AZURE_FOUNDRY_BASE_URL",
+    "AZURE_FOUNDRY_DEPLOYMENT",
+  ],
+  ["HMAC_KEY", "ADMIN_PASSWORD", "ADMIN_SESSION_SECRET", "SCRAPE_CACHE_TTL_DAYS"],
+];
+
+const lines = [
+  "# Generated by scripts/write-local-env-from-tofu.sh from `tofu show -json`.",
+  "# Treat this file as sensitive; it contains remote Cosmos DB and Foundry keys.",
+  "",
+];
+
+for (const [sectionIndex, section] of sections.entries()) {
+  if (sectionIndex > 0) lines.push("");
+  for (const key of section) {
+    lines.push(dotenvLine([key, env[key]]));
+  }
+}
+
+fs.writeFileSync(envPath, `${lines.join("\n")}\n`, { mode: 0o600 });
+NODE
 
 if [ -f "$ENV_PATH" ]; then
   backup_path="$ENV_PATH.$(date +%Y%m%d%H%M%S).bak"
@@ -30,37 +188,9 @@ if [ -f "$ENV_PATH" ]; then
   echo "Backed up existing .env to $backup_path"
 fi
 
-tmp_path="$(mktemp)"
-cleanup() {
-  rm -f "$tmp_path"
-}
-trap cleanup EXIT
-
-umask 077
-cat >"$tmp_path" <<EOF
-NODE_ENV=development
-PORT=${PORT:-3000}
-ALLOWED_ORIGINS=http://localhost:${PORT:-3000},http://127.0.0.1:${PORT:-3000}
-
-COSMOS_DB_ENDPOINT=$(tofu_output cosmos_endpoint)
-COSMOS_DB_MASTER_KEY=$(tofu_output cosmos_master_key)
-COSMOS_DB_DATABASE_NAME=$(tofu_output cosmos_database_name)
-COSMOS_DB_CONTAINER_NAME=$(tofu_output cosmos_container_name)
-COSMOS_DB_SCRAPES_CONTAINER_NAME=$(tofu_output cosmos_scrapes_container_name)
-
-AZURE_FOUNDRY_API_KEY=$(tofu_output azure_foundry_api_key)
-AZURE_FOUNDRY_ENDPOINT=$(tofu_output azure_foundry_endpoint)
-AZURE_FOUNDRY_BASE_URL=$(tofu_output azure_foundry_base_url)
-AZURE_FOUNDRY_DEPLOYMENT=$(tofu_output azure_foundry_deployment)
-
-HMAC_KEY=$(tofu_output hmac_key)
-ADMIN_PASSWORD=$(tofu_output admin_password)
-ADMIN_SESSION_SECRET=$(tofu_output admin_session_secret)
-SCRAPE_CACHE_TTL_DAYS=14
-EOF
-
 mv "$tmp_path" "$ENV_PATH"
 chmod 600 "$ENV_PATH"
 trap - EXIT
+rm -f "$show_json_path"
 
-echo "Wrote $ENV_PATH"
+echo "Wrote $ENV_PATH from tofu show -json"

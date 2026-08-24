@@ -322,6 +322,84 @@ function promptContextHasResources(promptContext: PromptContext): boolean {
   );
 }
 
+function getErrorHeader(error: unknown, headerName: string): string | undefined {
+  const err = error as { error?: { headers?: unknown }; headers?: unknown };
+  const headersList = [err.headers, err.error?.headers].filter(Boolean);
+
+  for (const headers of headersList) {
+    if (typeof (headers as Headers).get === "function") {
+      const value = (headers as Headers).get(headerName);
+      if (value) return value;
+    }
+
+    if (typeof headers === "object") {
+      const record = headers as Record<string, unknown>;
+      const value = record[headerName] ?? record[headerName.toLowerCase()];
+      if (typeof value === "string") return value;
+    }
+  }
+
+  return undefined;
+}
+
+function logV2RateLimitError(error: unknown, stream: boolean): void {
+  const err = error as {
+    code?: string;
+    error?: { code?: string; message?: string; type?: string };
+    message?: string;
+    request_id?: string;
+    requestID?: string;
+    status?: number;
+    type?: string;
+  };
+
+  const status = err.status;
+  const code = err.code ?? err.error?.code;
+  const type = err.type ?? err.error?.type;
+  const message = err.message ?? err.error?.message ?? "";
+  const isRateLimit =
+    status === 429 ||
+    code === "rate_limit_exceeded" ||
+    type === "too_many_requests" ||
+    type === "rate_limit_error" ||
+    /rate limit/i.test(message);
+
+  if (!isRateLimit) return;
+
+  console.warn("[llm-rate-limit] /interaction/v2/stream", {
+    status,
+    code,
+    type,
+    requestId:
+      err.requestID ??
+      err.request_id ??
+      getErrorHeader(error, "x-request-id") ??
+      getErrorHeader(error, "apim-request-id") ??
+      getErrorHeader(error, "x-ms-request-id"),
+    model: getFoundryDeployment(),
+    stream,
+    retryAfter: getErrorHeader(error, "retry-after"),
+    rateLimit: {
+      limitRequests: getErrorHeader(error, "x-ratelimit-limit-requests"),
+      remainingRequests: getErrorHeader(
+        error,
+        "x-ratelimit-remaining-requests",
+      ),
+      resetRequests: getErrorHeader(error, "x-ratelimit-reset-requests"),
+      limitTokens: getErrorHeader(error, "x-ratelimit-limit-tokens"),
+      remainingTokens: getErrorHeader(error, "x-ratelimit-remaining-tokens"),
+      resetTokens: getErrorHeader(error, "x-ratelimit-reset-tokens"),
+    },
+    azure: {
+      apimRequestId: getErrorHeader(error, "apim-request-id"),
+      msRequestId: getErrorHeader(error, "x-ms-request-id"),
+      msClientRequestId: getErrorHeader(error, "x-ms-client-request-id"),
+      msFeError: getErrorHeader(error, "x-ms-fe-error"),
+    },
+    message,
+  });
+}
+
 /**
  * Send a message (with optional files and history) to the tutoring LLM.
  *
@@ -569,6 +647,7 @@ export async function promptTutorV2(
     return finalResponse;
   } catch (error: unknown) {
     const err = error as Error;
+    logV2RateLimitError(error, stream);
     console.error("Error in promptTutorV2:", err);
 
     if (stream && res && !res.headersSent) {

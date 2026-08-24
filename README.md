@@ -38,7 +38,9 @@ For handoff, that means the next maintainer should not create new state from scr
 
 ## Local Development
 
-Populate `.env` from the deployed infrastructure:
+Populate `.env` from the deployed infrastructure. This reads `tofu show -json`
+and writes local development settings that point at the remote Azure AI Foundry
+and Cosmos DB resources, so treat the generated file as sensitive:
 
 ```bash
 scripts/write-local-env-from-tofu.sh

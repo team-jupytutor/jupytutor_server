@@ -1,0 +1,24 @@
+project      = "cs61a-140900"
+region       = "us-west1"
+service_name = "jupytutor"
+
+# Defaults to <project>-<service_name>.
+# bucket_name = "cs61a-140900-jupytutor"
+
+memory          = "1Gi"
+timeout_seconds = 300
+min_instances   = 1
+
+gcp_model              = "gemini-3.8-flash"
+gcp_base_url           = "https://generativelanguage.googleapis.com/v1beta/openai/"
+scrape_allowed_domains = "inferentialthinking.com"
+allowed_origins        = ""
+
+# Generative Language API key (the same key cs1/bot-server uses). Leave empty
+# to add the secret version with gcloud instead.
+gemini_api_key = ""
+
+extra_env_vars = {
+  # Deployment-specific overrides, for example:
+  # SCRAPE_CACHE_TTL_DAYS = "14"
+}

@@ -1,0 +1,10 @@
+.git
+node_modules
+dist
+data
+tofu
+.env
+.env.*
+.envrc
+.direnv
+app-service-package.zip

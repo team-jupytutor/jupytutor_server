@@ -1,4 +1,4 @@
-const DEFAULT_GCP_MODEL = "gemini-3.7-flash";
+const DEFAULT_GCP_MODEL = "gemini-3.8-flash";
 
 /**
  * True when the server should get completions from Google's Gemini

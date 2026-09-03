@@ -131,7 +131,7 @@ environment variables select the alternative:
 
 | Switch | Effect |
 | --- | --- |
-| `GCP_API_KEY` set | Completions go to `GCP_BASE_URL` (default `https://generativelanguage.googleapis.com/v1beta/openai/`) using model `GCP_MODEL` (default `gemini-3.8-flash`). The Azure `AZURE_FOUNDRY_*` variables are ignored. Gemini's endpoint has no Responses API, so `src/clients/responses-compat.ts` translates each request to chat completions and re-emits the stream events the handlers expect; the Azure path calls `client.responses.create` exactly as before. |
+| `GCP_API_KEY` set | Completions go to `GCP_BASE_URL` (default `https://generativelanguage.googleapis.com/v1beta/openai/`) using model `GCP_MODEL`. The Azure `AZURE_FOUNDRY_*` variables are ignored. Gemini's endpoint has no Responses API, so `src/clients/responses-compat.ts` translates each request to chat completions and re-emits the stream events the handlers expect; the Azure path calls `client.responses.create` exactly as before. |
 | `COSMOS_DB_ENDPOINT` unset | Interaction logs are appended to `${DATA_DIR}/interactions/YYYY-MM-DD.jsonl` and the scrape cache + admin domain whitelist are JSON files under `${DATA_DIR}/scrapes/<type>/<id>.json` (`DATA_DIR` defaults to `data`). `SCRAPE_ALLOWED_DOMAINS` (comma-separated) seeds allowed domains at startup so scraping works before anyone opens `/admin`; edits made in `/admin` persist as files. |
 
 On Cloud Run, `DATA_DIR=/data` is a Cloud Storage bucket mounted as a volume,

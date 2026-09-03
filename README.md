@@ -131,45 +131,58 @@ environment variables select the alternative:
 
 | Switch | Effect |
 | --- | --- |
-| `GCP_API_KEY` set | Completions go to `GCP_BASE_URL` (default `https://generativelanguage.googleapis.com/v1beta/openai/`) using model `GCP_MODEL` (the code defaults to `gemini-3.7-flash`; the deploy script sets `gemini-3.8-flash`). The Azure `AZURE_FOUNDRY_*` variables are ignored. Gemini's endpoint has no Responses API, so `src/clients/responses-compat.ts` translates each request to chat completions and re-emits the stream events the handlers expect; the Azure path calls `client.responses.create` exactly as before. |
+| `GCP_API_KEY` set | Completions go to `GCP_BASE_URL` (default `https://generativelanguage.googleapis.com/v1beta/openai/`) using model `GCP_MODEL` (default `gemini-3.8-flash`). The Azure `AZURE_FOUNDRY_*` variables are ignored. Gemini's endpoint has no Responses API, so `src/clients/responses-compat.ts` translates each request to chat completions and re-emits the stream events the handlers expect; the Azure path calls `client.responses.create` exactly as before. |
 | `COSMOS_DB_ENDPOINT` unset | Interaction logs are appended to `${DATA_DIR}/interactions/YYYY-MM-DD.jsonl` and the scrape cache + admin domain whitelist are JSON files under `${DATA_DIR}/scrapes/<type>/<id>.json` (`DATA_DIR` defaults to `data`). `SCRAPE_ALLOWED_DOMAINS` (comma-separated) seeds allowed domains at startup so scraping works before anyone opens `/admin`; edits made in `/admin` persist as files. |
 
 On Cloud Run, `DATA_DIR=/data` is a Cloud Storage bucket mounted as a volume,
 so both survive restarts. The service runs with `max-instances 1` because the
 file store and in-flight scrape tracking assume a single process.
 
-Environment on Cloud Run (set by `scripts/deploy-cloud-run.sh`):
+Environment on Cloud Run (applied by OpenTofu from `tofu/gcp`):
 
 | Variable | Source |
 | --- | --- |
-| `GCP_API_KEY` | Secret `jupytutor-gcp-api-key` (Generative Language API key) |
-| `HMAC_KEY` | Secret `jupytutor-hmac-key` (pseudo-anonymous student ids; keep stable) |
-| `ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET` | Secrets `jupytutor-admin-password`, `jupytutor-admin-session-secret` |
-| `GCP_MODEL`, `GCP_BASE_URL`, `SCRAPE_ALLOWED_DOMAINS`, `ALLOWED_ORIGINS` | Env vars; override when running the script |
+| `GCP_API_KEY` | Secret `jupytutor-gcp-api-key` (Generative Language API key, from `gemini_api_key` in `terraform.tfvars`) |
+| `HMAC_KEY` | Secret `jupytutor-hmac-key` (generated `random_password`; pseudo-anonymous student ids, keep stable) |
+| `ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET` | Secrets `jupytutor-admin-password`, `jupytutor-admin-session-secret` (generated) |
+| `GCP_MODEL`, `GCP_BASE_URL`, `SCRAPE_ALLOWED_DOMAINS`, `ALLOWED_ORIGINS` | Variables `gcp_model`, `gcp_base_url`, `scrape_allowed_domains`, `allowed_origins` |
 | `DATA_DIR=/data` | The mounted bucket |
 
-### Setup and deploy
+### Infrastructure and deploy
 
-Defaults target project `cs61a-140900`, region `us-west1`; override with
-`PROJECT=... REGION=...`. Both scripts pass `--project` explicitly, so they
-work from any active `gcloud` configuration.
+Infrastructure lives in `tofu/gcp/` and is managed exactly like the Azure
+configuration in `tofu/`: OpenTofu creates and updates the Artifact Registry
+repository, the state bucket, the service account, the secrets, and the Cloud
+Run service with every setting; `scripts/deploy-cloud-run.sh` only builds and
+rolls out a new image (OpenTofu ignores image changes), the same split as
+`scripts/deploy-app-service.sh` on Azure. See `tofu/gcp/README.md` for the
+state backend bootstrap and for adopting resources created outside OpenTofu.
 
 ```bash
-# Once: APIs, the state bucket, the jupytutor-app service account, and secrets.
-scripts/setup-cloud-run.sh
-# Once: store the Gemini API key.
-printf %s 'THE-KEY' | gcloud secrets versions add jupytutor-gcp-api-key --project cs61a-140900 --data-file=-
+cd tofu/gcp
+cp terraform.tfvars.example terraform.tfvars   # put the Gemini API key in gemini_api_key
+$EDITOR terraform.tfvars
+export GOOGLE_OAUTH_ACCESS_TOKEN="$(gcloud auth print-access-token)"
+tofu init
+tofu plan -out plan.out
+tofu apply plan.out
+cd ../..
 
-# Every deploy: Cloud Build the Dockerfile, deploy the `jupytutor` service, print its URL.
+# Every deploy: Cloud Build the Dockerfile, roll the image out, print the URL.
 scripts/deploy-cloud-run.sh
 DRY_RUN=true scripts/deploy-cloud-run.sh   # print the gcloud commands instead
 ```
 
-Then point the client at the printed `https://jupytutor-....run.app/` URL via
-`api.baseURL` (notebook metadata, `~/.config/jupytutor/config.json`, or
+The deploy script reads the project, region, service, and image name from
+`tofu output` when OpenTofu is installed and falls back to the defaults
+otherwise. To change a setting such as the model, edit `terraform.tfvars`
+(or the variable default) and `tofu apply`; Cloud Run rolls a new revision
+with no downtime.
+
+Then point the client at `tofu output -raw service_url` plus a trailing slash
+via `api.baseURL` (notebook metadata, `~/.config/jupytutor/config.json`, or
 `../jupytutor/src/config.ts`), exactly as with the App Service URL. The admin
-panel is at `/admin`; its password is
-`gcloud secrets versions access latest --secret jupytutor-admin-password --project cs61a-140900`.
+panel is at `/admin`; its password is `tofu output -raw admin_password`.
 
 ### Local development in GCP mode
 
@@ -178,7 +191,7 @@ Instead of `scripts/write-local-env-from-tofu.sh`, write a `.env` like:
 ```dotenv
 PORT=3000
 GCP_API_KEY=...
-GCP_MODEL=gemini-3.7-flash
+GCP_MODEL=gemini-3.8-flash
 DATA_DIR=./data
 SCRAPE_ALLOWED_DOMAINS=inferentialthinking.com
 HMAC_KEY=<at least 32 characters>

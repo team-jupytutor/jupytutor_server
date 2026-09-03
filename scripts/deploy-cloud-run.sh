@@ -1,32 +1,52 @@
 #!/usr/bin/env bash
-# Build the image with Cloud Build and deploy it to Cloud Run.
-# The alternative to scripts/deploy-app-service.sh (Azure). Run
-# scripts/setup-cloud-run.sh once first. See README "Google Cloud Run".
+# Build the image with Cloud Build and roll it out to the Cloud Run service.
+# The GCP counterpart of scripts/deploy-app-service.sh: OpenTofu (tofu/gcp)
+# owns the infrastructure and every service setting; this script only ships
+# a new image. See README "Google Cloud Run".
 #
-#   scripts/deploy-cloud-run.sh              build + deploy
+#   scripts/deploy-cloud-run.sh               build + deploy
 #   DRY_RUN=true scripts/deploy-cloud-run.sh  print the gcloud commands instead
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TOFU_DIR="$ROOT_DIR/tofu/gcp"
+
+PROJECT="${PROJECT:-}"
+REGION="${REGION:-}"
+SERVICE="${SERVICE:-}"
+IMAGE="${IMAGE:-}"
+DRY_RUN="${DRY_RUN:-false}"
+
+require_command() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "Missing required command: $1" >&2
+    exit 1
+  fi
+}
+
+require_command gcloud
+
+# Read the deployment target from OpenTofu outputs when available.
+tofu_output() {
+  if command -v tofu >/dev/null 2>&1; then
+    (cd "$TOFU_DIR" && tofu output -raw "$1" 2>/dev/null) || true
+  fi
+}
+
+PROJECT="${PROJECT:-$(tofu_output project)}"
+REGION="${REGION:-$(tofu_output region)}"
+SERVICE="${SERVICE:-$(tofu_output service_name)}"
+IMAGE="${IMAGE:-$(tofu_output image)}"
 
 PROJECT="${PROJECT:-cs61a-140900}"
 REGION="${REGION:-us-west1}"
 SERVICE="${SERVICE:-jupytutor}"
-REPO="${REPO:-jupytutor}"
-BUCKET_NAME="${BUCKET_NAME:-$PROJECT-jupytutor}"
-SA="jupytutor-app@$PROJECT.iam.gserviceaccount.com"
-IMAGE="$REGION-docker.pkg.dev/$PROJECT/$REPO/app"
-DRY_RUN="${DRY_RUN:-false}"
+IMAGE="${IMAGE:-$REGION-docker.pkg.dev/$PROJECT/$SERVICE/app}"
 
-# Runtime settings (all overridable from the environment).
-GCP_MODEL="${GCP_MODEL:-gemini-3.8-flash}"
-GCP_BASE_URL="${GCP_BASE_URL:-https://generativelanguage.googleapis.com/v1beta/openai/}"
-SCRAPE_ALLOWED_DOMAINS="${SCRAPE_ALLOWED_DOMAINS:-inferentialthinking.com}"
-ALLOWED_ORIGINS="${ALLOWED_ORIGINS:-}"
-MEMORY="${MEMORY:-1Gi}"
-TIMEOUT="${TIMEOUT:-300}"
-# Keep one warm instance so a student's first chat after idle isn't a cold start.
-MIN_INSTANCES="${MIN_INSTANCES:-1}"
+echo "Deploying to Cloud Run service: $SERVICE"
+echo "Project: $PROJECT"
+echo "Region: $REGION"
+echo "Image: $IMAGE"
 
 run() {
   echo "+ $*"
@@ -35,34 +55,15 @@ run() {
 
 cd "$ROOT_DIR"
 
-echo "=== Ensuring Artifact Registry repository exists ==="
-if [ "$DRY_RUN" = "true" ] || ! gcloud artifacts repositories describe "$REPO" \
-    --project "$PROJECT" --location "$REGION" --quiet >/dev/null 2>&1; then
-  run gcloud artifacts repositories create "$REPO" --project "$PROJECT" \
-    --location "$REGION" --repository-format docker --quiet
-fi
-
 echo "=== Building and pushing the image ==="
 run gcloud builds submit "$ROOT_DIR" --project "$PROJECT" --region "$REGION" \
   --tag "$IMAGE" --quiet
 
-echo "=== Deploying to Cloud Run ==="
-# `^|^` makes | the list separator so SCRAPE_ALLOWED_DOMAINS may contain commas.
-ENV_VARS="^|^DATA_DIR=/data|NODE_ENV=production|GCP_MODEL=$GCP_MODEL|GCP_BASE_URL=$GCP_BASE_URL|SCRAPE_ALLOWED_DOMAINS=$SCRAPE_ALLOWED_DOMAINS"
-if [ -n "$ALLOWED_ORIGINS" ]; then
-  ENV_VARS="$ENV_VARS|ALLOWED_ORIGINS=$ALLOWED_ORIGINS"
-fi
-# max-instances 1 is load-bearing: the scrape store is files on the mounted
-# bucket and in-flight scrapes are tracked in process memory.
+echo "=== Rolling out the new image ==="
+# Only the image changes; env vars, secrets, the volume, scaling, and the
+# service account stay as OpenTofu configured them.
 run gcloud run deploy "$SERVICE" --project "$PROJECT" --region "$REGION" \
-  --image "$IMAGE" --allow-unauthenticated \
-  --memory "$MEMORY" --timeout "$TIMEOUT" \
-  --max-instances 1 --min-instances "$MIN_INSTANCES" \
-  --service-account "$SA" \
-  --set-secrets "GCP_API_KEY=jupytutor-gcp-api-key:latest,HMAC_KEY=jupytutor-hmac-key:latest,ADMIN_PASSWORD=jupytutor-admin-password:latest,ADMIN_SESSION_SECRET=jupytutor-admin-session-secret:latest" \
-  --add-volume "name=state,type=cloud-storage,bucket=$BUCKET_NAME" \
-  --add-volume-mount "volume=state,mount-path=/data" \
-  --set-env-vars "$ENV_VARS" --quiet
+  --image "$IMAGE" --quiet
 
 echo "=== Deleting untagged images left by earlier builds ==="
 # Each build retags `latest`, leaving the previous image as an untagged

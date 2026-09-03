@@ -11,6 +11,8 @@ import "dotenv/config";
 
 import { CosmosClient } from "@azure/cosmos";
 import crypto from "crypto";
+import fs from "fs";
+import path from "path";
 import { getFoundryDeployment } from "./constants.js";
 import type {
   SchemaDefinition,
@@ -19,10 +21,23 @@ import type {
   LogResponseParams,
 } from "../types.js";
 
-const client = new CosmosClient({
-  endpoint: process.env.COSMOS_DB_ENDPOINT!,
-  key: process.env.COSMOS_DB_MASTER_KEY,
-});
+/**
+ * Without COSMOS_DB_ENDPOINT (e.g. on Cloud Run) interactions are appended
+ * as JSON lines to `${DATA_DIR}/interactions/YYYY-MM-DD.jsonl` instead.
+ */
+export const cosmosConfigured = Boolean(process.env.COSMOS_DB_ENDPOINT);
+const DATA_DIR = process.env.DATA_DIR ?? "data";
+
+let client: CosmosClient | null = null;
+function getCosmosClient(): CosmosClient {
+  if (!client) {
+    client = new CosmosClient({
+      endpoint: process.env.COSMOS_DB_ENDPOINT!,
+      key: process.env.COSMOS_DB_MASTER_KEY,
+    });
+  }
+  return client;
+}
 const databaseId = "jupytutor";
 const containerId = "Container1";
 
@@ -105,7 +120,6 @@ function validateAgainstSchema(
 // ─── Store wrapper ──────────────────────────────────────────────────
 
 export class JupytutorInteractionStore {
-  private client: CosmosClient;
   private databaseId: string;
   private containerId: string;
   private schema: SchemaDefinition;
@@ -117,7 +131,6 @@ export class JupytutorInteractionStore {
     schema = JUPYTUTOR_INTERACTION_SCHEMA,
     interactionKeys = JUPYTUTOR_INTERACTION_KEYS,
   } = {}) {
-    this.client = client;
     this.databaseId = dbId;
     this.containerId = cid;
     this.schema = schema;
@@ -125,7 +138,9 @@ export class JupytutorInteractionStore {
   }
 
   private get container() {
-    return this.client.database(this.databaseId).container(this.containerId);
+    return getCosmosClient()
+      .database(this.databaseId)
+      .container(this.containerId);
   }
 
   /** Validate a full or partial interaction against the schema. */
@@ -218,7 +233,29 @@ export const logResponse = ({
     api_version: apiVersion,
   };
 
+  if (!cosmosConfigured) {
+    appendInteractionToFile(interaction).catch((err) => {
+      console.log("Upload failed:", err);
+    });
+    return;
+  }
+
   jupytutorInteractionStore.upsert(interaction).catch((err) => {
     console.log("Upload failed:", err);
   });
 };
+
+async function appendInteractionToFile(
+  interaction: JupytutorInteraction,
+): Promise<void> {
+  jupytutorInteractionStore.validate(
+    interaction as unknown as Record<string, unknown>,
+  );
+  const day = new Date(interaction.timestamp).toISOString().slice(0, 10);
+  const dir = path.join(DATA_DIR, "interactions");
+  await fs.promises.mkdir(dir, { recursive: true });
+  await fs.promises.appendFile(
+    path.join(dir, `${day}.jsonl`),
+    `${JSON.stringify(interaction)}\n`,
+  );
+}

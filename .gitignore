@@ -1,6 +1,8 @@
 *.bundle.*
 lib/
 node_modules/
+# Local file store (interaction logs + scrape cache) when Cosmos DB is not configured
+data/
 *.log
 app-service-package.zip
 .direnv/

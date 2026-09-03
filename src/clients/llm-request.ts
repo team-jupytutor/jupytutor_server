@@ -3,6 +3,9 @@
  *
  * Handles prompt construction, file processing (images, code, text),
  * streaming / non-streaming responses, and chat-history management.
+ *
+ * With GCP_API_KEY set, the same requests go to Gemini's OpenAI-compatible
+ * endpoint instead (see responses-compat.ts).
  */
 
 import "dotenv/config";
@@ -10,7 +13,8 @@ import "dotenv/config";
 import OpenAI from "openai";
 import fs from "fs";
 import path from "path";
-import { getFoundryDeployment } from "./constants.js";
+import { getFoundryDeployment, isGcpProvider } from "./constants.js";
+import { createResponse } from "./responses-compat.js";
 import type { Response } from "express";
 import type {
   ChatMessage,
@@ -48,13 +52,24 @@ function buildAzureFoundryBaseURL(): string {
   return `${endpoint.replace(/\/$/, "")}/openai/v1/`;
 }
 
-const client = new OpenAI({
-  apiKey: process.env.AZURE_FOUNDRY_API_KEY,
-  baseURL: buildAzureFoundryBaseURL(),
-  defaultHeaders: {
-    "api-key": process.env.AZURE_FOUNDRY_API_KEY,
-  },
-});
+const DEFAULT_GCP_BASE_URL =
+  "https://generativelanguage.googleapis.com/v1beta/openai/";
+
+const client = isGcpProvider()
+  ? new OpenAI({
+      apiKey: process.env.GCP_API_KEY,
+      baseURL: process.env.GCP_BASE_URL || DEFAULT_GCP_BASE_URL,
+    })
+  : new OpenAI({
+      apiKey: process.env.AZURE_FOUNDRY_API_KEY,
+      baseURL: buildAzureFoundryBaseURL(),
+      defaultHeaders: {
+        "api-key": process.env.AZURE_FOUNDRY_API_KEY,
+      },
+    });
+console.log(
+  `[jupytutor] completions provider: ${isGcpProvider() ? `gemini via GCP (${getFoundryDeployment()})` : "azure ai foundry"}`,
+);
 
 type ImageMimeType =
   | "image/png"
@@ -560,9 +575,9 @@ export async function promptTutorV2(
   }
 
   try {
-    const response = await client.responses.create({
+    const response = await createResponse(client, {
       model: getFoundryDeployment(),
-      input: modelMessages.map(cleanMessageForAPI) as never,
+      input: modelMessages.map(cleanMessageForAPI),
       stream,
     });
 
@@ -708,9 +723,9 @@ async function handleStreaming(
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
 
-  const response = await client.responses.create({
+  const response = await createResponse(client, {
     model,
-    input: input as never,
+    input,
     instructions,
     stream: true,
   });
@@ -774,9 +789,9 @@ async function handleNonStreaming(
   res: Response | null,
   textbookContextProvided: boolean,
 ): Promise<TutorResponse> {
-  const response = await client.responses.create({
+  const response = await createResponse(client, {
     model,
-    input: input as never,
+    input,
     instructions,
   });
 
